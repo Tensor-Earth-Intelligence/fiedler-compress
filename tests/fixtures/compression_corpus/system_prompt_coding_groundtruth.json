@@ -1,0 +1,9 @@
+{
+  "category": "system_prompt",
+  "expected_caveman_compression_min": 0.03,
+  "expected_caveman_compression_max": 0.25,
+  "critical_content": ["CodePilot", "type annotations", "cyclomatic complexity", "TypeScript", "deprecated APIs", "unit test", "error handling"],
+  "has_code_blocks": false,
+  "semantic_test_question": "What name is given to this coding assistant and what typing preference does it have?",
+  "semantic_test_answer": "The assistant is called CodePilot and it prefers strongly-typed approaches, including type annotations in Python and TypeScript over plain JavaScript."
+}

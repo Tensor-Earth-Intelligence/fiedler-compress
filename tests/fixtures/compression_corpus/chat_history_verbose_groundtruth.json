@@ -1,0 +1,9 @@
+{
+  "category": "chat_history",
+  "expected_caveman_compression_min": 0.02,
+  "expected_caveman_compression_max": 0.20,
+  "critical_content": ["nginx", "proxy_pass", "127.0.0.1:3000", "certbot", "Let's Encrypt", "WebSocket", "proxy_read_timeout", "86400s", "Strict-Transport-Security", "/etc/nginx/sites-available/"],
+  "has_code_blocks": true,
+  "semantic_test_question": "What timeout values are set for the WebSocket proxy location block and why?",
+  "semantic_test_answer": "proxy_read_timeout and proxy_send_timeout are both set to 86400s (24 hours) because WebSocket connections are long-lived and would otherwise be closed after nginx's default 60 second timeout."
+}

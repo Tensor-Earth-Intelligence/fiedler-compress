@@ -1,0 +1,101 @@
+## Kubernetes Pod Scheduling: Architecture and Configuration
+
+Kubernetes pod scheduling is essentially the process by which the kube-scheduler assigns pods to nodes in a cluster. The scheduler is really quite sophisticated, using a multi-stage pipeline that evaluates node fitness through filtering and scoring phases. Understanding this process is actually critical for optimizing workload placement in production environments.
+
+### Scheduling Framework Overview
+
+The scheduling framework basically operates in two main phases:
+
+1. **Filtering Phase**: The scheduler first eliminates nodes that definitely cannot run the pod. This includes nodes with insufficient resources, nodes that don't match the pod's nodeSelector, and nodes where taints would prevent scheduling. The filtering phase typically reduces the candidate set from potentially hundreds of nodes to a much smaller subset.
+
+2. **Scoring Phase**: The remaining nodes are then scored based on various priorities. The scheduler essentially assigns a numerical score to each node, and the pod is generally placed on the highest-scoring node. If multiple nodes have the same score, one is chosen at random.
+
+### Resource Requests and Limits
+
+Resource management is really fundamental to effective scheduling. Here is an example pod specification with resource constraints:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ml-training-worker
+  namespace: production
+  labels:
+    app: ml-pipeline
+    tier: compute
+spec:
+  containers:
+  - name: trainer
+    image: registry.internal.io/ml/trainer:v2.4.1
+    resources:
+      requests:
+        cpu: "4"
+        memory: "16Gi"
+        nvidia.com/gpu: "1"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+        nvidia.com/gpu: "1"
+    env:
+    - name: BATCH_SIZE
+      value: "256"
+    - name: LEARNING_RATE
+      value: "0.001"
+    volumeMounts:
+    - name: training-data
+      mountPath: /data/training
+      readOnly: true
+    - name: model-output
+      mountPath: /data/models
+  volumes:
+  - name: training-data
+    persistentVolumeClaim:
+      claimName: training-dataset-pvc
+  - name: model-output
+    persistentVolumeClaim:
+      claimName: model-output-pvc
+  nodeSelector:
+    gpu-type: nvidia-a100
+    zone: us-east-1a
+  tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - ml-pipeline
+        topologyKey: "kubernetes.io/hostname"
+```
+
+### Node Affinity and Anti-Affinity
+
+Node affinity is essentially a more expressive version of nodeSelector. It allows you to actually specify rules that are either required or preferred during scheduling. The `requiredDuringSchedulingIgnoredDuringExecution` field means the rules must definitely be met for a pod to be scheduled onto a node, while `preferredDuringSchedulingIgnoredDuringExecution` basically specifies preferences that the scheduler will try to enforce but will not guarantee.
+
+Pod anti-affinity, as shown in the example above, is really useful for spreading replicas across failure domains. In this case, we are essentially ensuring that no two ml-pipeline pods are scheduled on the same node, which obviously improves fault tolerance.
+
+### Priority and Preemption
+
+When cluster resources are constrained, Kubernetes uses priority classes to determine which pods should be scheduled first. Higher-priority pods can actually preempt lower-priority ones. Here is an example PriorityClass:
+
+```yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ml-critical
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Priority class for critical ML training jobs"
+```
+
+### Topology Spread Constraints
+
+Starting from Kubernetes 1.19, topology spread constraints provide a more flexible way to control how pods are distributed across topology domains. This is generally preferable to pod anti-affinity rules for large-scale deployments because it allows for more granular control over the spread of pods across zones, regions, or custom topology domains.
+
+The `maxSkew` parameter essentially defines the maximum allowed difference in the number of matching pods between any two topology domains. A lower value produces a more even distribution but may make scheduling more difficult in resource-constrained environments.

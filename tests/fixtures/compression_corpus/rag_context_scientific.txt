@@ -1,0 +1,42 @@
+## Rare Earth Element Geochemistry in Lateritic Bauxite Deposits
+
+### Introduction and Geological Setting
+
+Lateritic bauxite deposits are essentially the primary global source of aluminum ore, but they also represent increasingly important reservoirs of rare earth elements (REEs). The geochemical behavior of REEs during lateritic weathering is really quite complex, involving multiple dissolution, transport, and precipitation mechanisms that are controlled by pH, Eh, organic ligand availability, and the mineralogy of the parent rock.
+
+The typical lateritic profile developed over nepheline syenite or carbonatite parent rocks generally consists of four distinct horizons, from surface to bedrock: (1) a ferruginous duricrust (Fe₂O₃ > 55 wt%), (2) a nodular laterite zone, (3) a clay-rich saprolite horizon, and (4) the saprock transition zone. REE enrichment is typically concentrated in the clay-rich saprolite, where secondary phosphate minerals such as rhabdophane (LREEPO₄·H₂O) and churchite (YPO₄·2H₂O) serve as the principal REE-bearing phases.
+
+### REE Fractionation Patterns
+
+During lateritic weathering, light rare earth elements (LREEs: La, Ce, Pr, Nd, Sm) and heavy rare earth elements (HREEs: Gd, Tb, Dy, Ho, Er, Tm, Yb, Lu) exhibit markedly different geochemical behaviors. The LREE/HREE fractionation ratio, typically expressed as (La/Yb)ₙ where ₙ denotes chondrite-normalized values, can vary from 0.3 to 45.0 across the weathering profile.
+
+In the ferruginous duricrust, cerium anomalies (Ce/Ce* = 2Ce_N/(La_N + Pr_N)) are generally strongly positive, with Ce/Ce* values ranging from 2.1 to 8.7, reflecting the oxidation of Ce³⁺ to Ce⁴⁺ and its subsequent incorporation into cerianite (CeO₂) or adsorption onto Fe-Mn oxyhydroxides such as goethite (α-FeOOH) and birnessite ((Na,Ca)₀.₅(Mn⁴⁺,Mn³⁺)₂O₄·1.5H₂O).
+
+In contrast, the saprolite horizon typically shows negative cerium anomalies (Ce/Ce* = 0.15-0.65) and pronounced HREE enrichment, with total REE concentrations (ΣREE) reaching 2,500-12,800 ppm. The dominant REE-bearing minerals in this zone include:
+
+- Rhabdophane (LREEPO₄·H₂O): 35-60 wt% REE₂O₃
+- Florencite (LREEAl₃(PO₄)₂(OH)₆): 28-42 wt% REE₂O₃
+- Ion-adsorbed clays (halloysite, kaolinite): 0.05-1.2 wt% REE₂O₃
+- Churchite (YPO₄·2H₂O): 45-58 wt% REE₂O₃
+- Xenotime (YPO₄): 52-67 wt% REE₂O₃
+
+### Quantitative Geochemical Data
+
+Representative whole-rock analyses from the Pitinga laterite profile (Amazonas, Brazil; coordinates 0°47'S, 60°05'W) show the following REE distribution across horizons:
+
+| Horizon          | Depth (m) | ΣLREE (ppm) | ΣHREE (ppm) | ΣREE (ppm) | (La/Yb)ₙ | Ce/Ce* | Eu/Eu* |
+|------------------|-----------|-------------|-------------|------------|-----------|--------|--------|
+| Duricrust        | 0-3.5     | 1,240       | 180         | 1,420      | 12.8      | 4.3    | 0.72   |
+| Nodular laterite | 3.5-8.0   | 2,890       | 520         | 3,410      | 8.4       | 2.1    | 0.68   |
+| Saprolite        | 8.0-22.0  | 4,150       | 8,650       | 12,800     | 0.42      | 0.31   | 1.15   |
+| Saprock          | 22.0-28.5 | 890         | 340         | 1,230      | 3.7       | 0.85   | 0.95   |
+
+The saprolite horizon at Pitinga shows a ΣREE of 12,800 ppm with an exceptional HREE enrichment factor of 48x relative to the parent nepheline syenite (ΣHREE = 180 ppm). Yttrium concentrations reach 3,200 ppm, representing a grade that is definitely economically significant given the current Y₂O₃ price of approximately $3.20/kg.
+
+### Mobilization Mechanisms
+
+REE mobilization in lateritic systems is essentially controlled by three primary mechanisms:
+
+(1) Dissolution of primary REE-bearing minerals (apatite Ca₅(PO₄)₃(F,Cl,OH), allanite (Ca,Ce)(Al₂Fe²⁺)(Si₂O₇)(SiO₄)O(OH), and titanite CaTiSiO₅) at pH < 5.5 in the presence of organic acids;
+(2) Complexation with carbonate (CO₃²⁻), fluoride (F⁻), sulfate (SO₄²⁻), and organic ligands (humic and fulvic acids) in soil porewater;
+(3) Coprecipitation and adsorption onto secondary phases, particularly Fe-Mn oxyhydroxides and clay minerals, with distribution coefficients (Kd) ranging from 10² to 10⁵ L/kg depending on the REE, pH, and competing ion concentrations.

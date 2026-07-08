@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fiedler-compress"
+version = "0.1.0"
+description = "Spectral graph-theoretic prompt compression using Fiedler vector decomposition"
+readme = "README.md"
+license = "FSL-1.1-ALv2"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    { name = "Mark Chappell" },
+]
+keywords = [
+    "llm",
+    "prompt-compression",
+    "spectral-graph",
+    "fiedler-vector",
+    "token-optimization",
+    "context-window",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "numpy>=1.24,<3",
+    "scipy>=1.10,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0,<10",
+    "pytest-cov>=4.0,<8",
+    "ruff>=0.4,<1",
+]
+benchmark = [
+    "datasets>=2.14,<5",
+    "rouge-score>=0.1,<1",
+    "httpx>=0.24,<1",
+]
+caveman = [
+    "spacy>=3.5,<4",
+    "tiktoken>=0.5,<1",
+]
+
+[project.scripts]
+fiedler = "fiedler_optimizer.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Tensor-Earth-Intelligence/fiedler-compress"
+Issues = "https://github.com/Tensor-Earth-Intelligence/fiedler-compress/issues"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["fiedler_optimizer"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "fiedler_optimizer",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]

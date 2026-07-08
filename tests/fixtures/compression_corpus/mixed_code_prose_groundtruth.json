@@ -1,0 +1,9 @@
+{
+  "category": "mixed",
+  "expected_caveman_compression_min": 0.01,
+  "expected_caveman_compression_max": 0.15,
+  "critical_content": ["TokenBucket", "RateLimiterRegistry", "refill_rate", "time.monotonic()", "threading.Lock", "cleanup_stale", "capacity", "consume", "wait_for_token", "FastAPI"],
+  "has_code_blocks": true,
+  "semantic_test_question": "How does the TokenBucket refill mechanism work and why is it efficient?",
+  "semantic_test_answer": "The _refill method is called lazily on each access rather than running a background timer. It calculates elapsed time since last refill and adds tokens proportional to elapsed time * refill_rate, capped at capacity."
+}

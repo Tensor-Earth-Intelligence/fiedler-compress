@@ -1,0 +1,9 @@
+{
+  "category": "rag_context",
+  "expected_caveman_compression_min": 0.02,
+  "expected_caveman_compression_max": 0.15,
+  "critical_content": ["LREEPO₄·H₂O", "Ce/Ce*", "12,800 ppm", "CeO₂", "α-FeOOH", "0°47'S, 60°05'W", "(La/Yb)ₙ", "Kd", "Y₂O₃", "nepheline syenite", "3,200 ppm"],
+  "has_code_blocks": false,
+  "semantic_test_question": "What is the total REE concentration in the saprolite horizon at Pitinga and what is its HREE enrichment factor relative to the parent rock?",
+  "semantic_test_answer": "The saprolite horizon has a total REE concentration of 12,800 ppm with an HREE enrichment factor of 48x relative to the parent nepheline syenite."
+}

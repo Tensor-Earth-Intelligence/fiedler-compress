@@ -1,0 +1,9 @@
+{
+  "category": "instruction",
+  "expected_caveman_compression_min": 0.01,
+  "expected_caveman_compression_max": 0.20,
+  "critical_content": ["tenure_months", "avg_monthly_spend", "support_ticket_rate", "VIF", "5.0", "XGBoost", "learning_rate=0.05", "AUC-ROC", "SHAP", "2,000", "45,000", "FALCON", "EV = (TP * $120) - (FP * $15) - (FN * $200)"],
+  "has_code_blocks": false,
+  "semantic_test_question": "What is the expected value formula for threshold optimization and what is the intervention capacity constraint?",
+  "semantic_test_answer": "EV = (TP * $120) - (FP * $15) - (FN * $200), with a maximum intervention capacity of 2,000 customers per month from a base of approximately 45,000."
+}

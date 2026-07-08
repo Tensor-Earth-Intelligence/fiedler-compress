@@ -1,0 +1,9 @@
+{
+  "category": "obfuscation",
+  "expected_caveman_compression_min": 0.001,
+  "expected_caveman_compression_max": 0.20,
+  "critical_content": ["PriceEngine", "FALCON", "ATLAS", "2.4x", "3.1x", "LTV score", "850", "12%", "pricing-api.internal:8443", "OFAC SDN", "HTTP 451", "72 hours", "40%", "160%"],
+  "has_code_blocks": false,
+  "semantic_test_question": "What are the FALCON override trigger conditions and cooldown period?",
+  "semantic_test_answer": "FALCON triggers when a competitor price is detected below listed price by more than 8%, matching competitor price minus $0.50 but never below the floor price. It has a 72-hour cooldown per SKU per region."
+}

@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+*.so
+.coverage
+htmlcov/
+fiedler_env/
+fiedler_env.*_copy_*/
+.claude/
+
+# Commercial/paid tier — never published
+_private_paid/
+
+# Secrets / keys
+*.key
+*.pem

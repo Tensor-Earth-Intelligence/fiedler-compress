@@ -1,0 +1,9 @@
+{
+  "category": "system_prompt",
+  "expected_caveman_compression_min": 0.03,
+  "expected_caveman_compression_max": 0.25,
+  "critical_content": ["equity research", "SEC filing", "10-K", "10-Q", "8-K", "CIK", "GAAP", "non-GAAP", "DCF", "free cash flow"],
+  "has_code_blocks": false,
+  "semantic_test_question": "What specific SEC filing types and identifiers must be cited when referencing financial data?",
+  "semantic_test_answer": "Must cite the specific SEC filing type (10-K, 10-Q, 8-K) with the CIK number and filing date, the specific table or exhibit number, reporting period, and whether figures are audited or unaudited."
+}

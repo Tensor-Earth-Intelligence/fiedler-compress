@@ -1,0 +1,63 @@
+## Multi-Step Analysis: Customer Churn Prediction Pipeline
+
+You are going to analyze customer churn data through a structured reasoning process. It is really important that you follow each step carefully and show your work at every stage. You should definitely not skip any steps, as each one builds on the previous.
+
+### Step 1: Data Assessment
+
+First, you should essentially examine the provided dataset and identify:
+- The total number of records and features
+- The target variable distribution (churn rate percentage)
+- Missing value counts for each column
+- Data type of each feature (categorical, numerical, datetime)
+
+You should basically output a summary table with columns: Feature Name, Data Type, Missing Count, Missing Percentage, Unique Values.
+
+### Step 2: Feature Engineering
+
+Based on the assessment from Step 1, you should then create derived features. It might be worth considering the following transformations:
+
+- Calculate `tenure_months` from the account creation date
+- Compute `avg_monthly_spend` as `total_spend / tenure_months`
+- Create `support_ticket_rate` as `total_tickets / tenure_months`
+- Bin `age` into categories: 18-25, 26-35, 36-50, 51-65, 65+
+- One-hot encode categorical variables with cardinality < 10
+- Apply target encoding for categorical variables with cardinality >= 10
+
+For each derived feature, you should really explain why it's likely to be predictive of churn. This is actually quite important for model interpretability.
+
+### Step 3: Correlation Analysis
+
+Now you should essentially compute:
+- Pearson correlation between all numerical features and the target
+- Cramers V statistic between categorical features and the target
+- Variance Inflation Factor (VIF) to identify multicollinearity
+
+Remove any features with VIF > 5.0 or absolute correlation < 0.05 with the target. You should definitely document which features are removed and why.
+
+### Step 4: Model Selection and Training
+
+Using the features from Step 3, you should basically train three models:
+
+1. Logistic Regression with L2 regularization (C=1.0)
+2. Random Forest (n_estimators=500, max_depth=12, min_samples_leaf=20)
+3. XGBoost (learning_rate=0.05, max_depth=6, n_estimators=1000, early_stopping_rounds=50)
+
+Use stratified 5-fold cross-validation for all models. The evaluation metrics should essentially include: AUC-ROC, precision at 80% recall, F1-score, and log loss.
+
+### Step 5: Threshold Optimization
+
+For the best-performing model from Step 4, you should then optimize the classification threshold. The business constraint is that the intervention budget can handle a maximum of 2,000 customers per month, and the monthly customer base is approximately 45,000.
+
+Calculate the optimal threshold that:
+- Maximizes the expected value: EV = (TP * $120) - (FP * $15) - (FN * $200)
+- Stays within the 2,000 intervention capacity constraint
+- Achieves a minimum precision of 0.35
+
+### Step 6: Final Report
+
+Produce a summary report with:
+- The selected model and its cross-validated performance metrics
+- The top 10 most important features with SHAP values
+- The optimized threshold and its business impact projection
+- Confidence intervals for all reported metrics (95% bootstrap CI)
+- Recommended next steps for model deployment and monitoring

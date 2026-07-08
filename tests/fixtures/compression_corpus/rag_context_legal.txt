@@ -1,0 +1,55 @@
+## DFARS 252.225-7052: Compliance Requirements for Specialty Metals
+
+### Statutory Background
+
+The Defense Federal Acquisition Regulation Supplement (DFARS) clause 252.225-7052, "Restriction on the Acquisition of Certain Articles Containing Specialty Metals," implements the requirements of 10 U.S.C. 4863 (formerly 10 U.S.C. 2533b). This provision essentially restricts the Department of Defense from acquiring certain articles containing specialty metals that are not melted or produced in the United States, a qualifying country listed in DFARS 225.872-1, or any other country that has actually entered into a reciprocal defense procurement memorandum of understanding with the United States.
+
+### Definition of Specialty Metals
+
+As defined under DFARS 252.225-7014 and 10 U.S.C. 4863(d), "specialty metals" basically include:
+
+(1) Steel that is definitely one of the following:
+    (i) With a maximum alloy content exceeding one or more of the following limits: manganese 1.65%, silicon 0.60%, or copper 0.60%;
+    (ii) Containing more than 0.25% of any of the following elements: aluminum, chromium, cobalt, molybdenum, nickel, niobium (columbium), titanium, tungsten, or vanadium;
+    (iii) High-strength, low-alloy steel (HSLA) with a yield strength of 40,000 pounds per square inch (40 ksi) or more;
+    (iv) Maraging steel;
+
+(2) Metal alloys consisting of nickel, iron-nickel, and cobalt-base alloys containing a total of other alloying metals (except iron) in excess of 10%;
+
+(3) Titanium and titanium alloys;
+
+(4) Zirconium and zirconium base alloys.
+
+### Applicable Articles Under 252.225-7052
+
+The restriction under this clause generally applies to the following categories of articles that actually contain specialty metals:
+
+(a) Aircraft, including fixed-wing and rotary-wing platforms, unmanned aerial vehicles (UAVs), and associated structural components;
+(b) Missile and space systems, including launch vehicles and satellite buses;
+(c) Ships, including hull structures, propulsion components, and combat system foundations;
+(d) Tank and automotive items, including armor plate and structural members;
+(e) Weapon systems, including gun barrels, breech assemblies, and fire control housings;
+(f) Ammunition, including cartridge cases, projectile bodies, and warhead casings.
+
+### Exceptions and Waivers
+
+There are several statutory exceptions to the specialty metals restriction that should certainly be noted:
+
+(1) **Electronic Components Exception** (DFARS 225.7003-3(b)(2)): Specialty metals contained in electronic components are typically exempt, provided the electronic component is not custom-designed for military application.
+
+(2) **Commercial Derivative Exception** (DFARS 225.7003-3(b)(3)): Articles acquired under a subcontract at any tier for use in the production of a commercial derivative military article are generally exempt if the contractor certifies compliance with the conditions at 225.7003-3(b)(3)(i)-(iii).
+
+(3) **Minimal Content Exception** (DFARS 225.7003-3(b)(5)): Specialty metals in an end item or component that are actually present in amounts that do not exceed 2% of the total weight of the specialty metal in the end item or component.
+
+(4) **National Security Waiver** (DFARS 225.7003-3(c)): The Secretary of Defense or designee may waive the restriction on a case-by-case basis by certifying that adequate domestic supplies of the specialty metal are not available, the application of the restriction would result in unreasonable costs or delays, or acquisition of the article is necessary to support national security requirements.
+
+### Compliance Verification Requirements
+
+Contractors must essentially maintain documentation sufficient to verify compliance with DFARS 252.225-7052 throughout the supply chain. This documentation should include:
+
+(1) Certified mill test reports (CMTRs) conforming to EN 10204 Type 3.1 or equivalent, tracing the specialty metal to an approved melt source;
+(2) Country-of-melt certifications for each heat or lot of specialty metal;
+(3) Flow-down records demonstrating that the 252.225-7052 clause has been properly incorporated into subcontracts at all tiers;
+(4) Internal audit records from the contractor's specialty metals compliance program, conducted at least annually.
+
+Failure to comply with DFARS 252.225-7052 may result in contract termination for default under FAR 52.249-8, suspension or debarment proceedings, and referral for investigation under the False Claims Act, 31 U.S.C. 3729-3733.

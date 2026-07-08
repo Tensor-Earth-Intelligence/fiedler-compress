@@ -1,0 +1,9 @@
+{
+  "category": "rag_context",
+  "expected_caveman_compression_min": 0.01,
+  "expected_caveman_compression_max": 0.20,
+  "critical_content": ["kube-scheduler", "nodeSelector", "nvidia-a100", "requiredDuringSchedulingIgnoredDuringExecution", "preferredDuringSchedulingIgnoredDuringExecution", "PriorityClass", "maxSkew", "registry.internal.io/ml/trainer:v2.4.1", "topologyKey", "podAntiAffinity"],
+  "has_code_blocks": true,
+  "semantic_test_question": "What GPU type is required by the ml-training-worker pod and what is the memory request?",
+  "semantic_test_answer": "The pod requires an nvidia-a100 GPU (via nodeSelector) and requests 16Gi of memory."
+}

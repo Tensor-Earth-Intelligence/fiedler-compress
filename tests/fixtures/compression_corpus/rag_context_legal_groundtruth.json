@@ -1,0 +1,9 @@
+{
+  "category": "rag_context",
+  "expected_caveman_compression_min": 0.005,
+  "expected_caveman_compression_max": 0.20,
+  "critical_content": ["DFARS 252.225-7052", "10 U.S.C. 4863", "DFARS 225.872-1", "manganese 1.65%", "silicon 0.60%", "40 ksi", "EN 10204 Type 3.1", "FAR 52.249-8", "31 U.S.C. 3729-3733", "DFARS 225.7003-3(b)(2)", "2%"],
+  "has_code_blocks": false,
+  "semantic_test_question": "What is the maximum allowable specialty metal weight percentage under the minimal content exception?",
+  "semantic_test_answer": "Under DFARS 225.7003-3(b)(5), specialty metals must not exceed 2% of the total weight of the specialty metal in the end item or component."
+}

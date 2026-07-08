@@ -1,0 +1,106 @@
+## Building a Rate Limiter with Token Buckets in Python
+
+Rate limiting is essentially a really critical component of any production API. In this guide, we'll basically walk through implementing a token bucket rate limiter that is actually quite flexible and can definitely handle multiple rate limiting strategies.
+
+### The Token Bucket Algorithm
+
+The token bucket algorithm is generally considered one of the most elegant approaches to rate limiting. It basically works by maintaining a bucket that is periodically refilled with tokens. Each request obviously consumes one or more tokens, and when the bucket is empty, requests are typically rejected or queued.
+
+Here's the core implementation:
+
+```python
+import time
+import threading
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class TokenBucket:
+    """Thread-safe token bucket rate limiter."""
+
+    capacity: int
+    refill_rate: float  # tokens per second
+    tokens: float = field(init=False)
+    last_refill: float = field(init=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def __post_init__(self):
+        self.tokens = float(self.capacity)
+        self.last_refill = time.monotonic()
+
+    def _refill(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self.last_refill
+        self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
+        self.last_refill = now
+
+    def consume(self, tokens: int = 1) -> bool:
+        with self._lock:
+            self._refill()
+            if self.tokens >= tokens:
+                self.tokens -= tokens
+                return True
+            return False
+
+    def wait_for_token(self, tokens: int = 1, timeout: Optional[float] = None) -> bool:
+        deadline = time.monotonic() + timeout if timeout else float('inf')
+        while time.monotonic() < deadline:
+            if self.consume(tokens):
+                return True
+            time.sleep(0.01)
+        return False
+```
+
+The `TokenBucket` class is really quite straightforward. The `capacity` parameter essentially determines the maximum burst size, while `refill_rate` controls the sustained throughput. The `_refill` method is basically called lazily on each access, which is actually more efficient than running a background timer.
+
+### Adding Per-Client Rate Limiting
+
+In a real application, you would typically want to rate limit per client, not globally. Here's how you could essentially extend this with a client registry:
+
+```python
+from collections import defaultdict
+
+
+class RateLimiterRegistry:
+    """Manages per-client token buckets with automatic cleanup."""
+
+    def __init__(self, capacity: int = 100, refill_rate: float = 10.0,
+                 cleanup_interval: float = 300.0):
+        self.capacity = capacity
+        self.refill_rate = refill_rate
+        self.cleanup_interval = cleanup_interval
+        self._buckets: dict[str, TokenBucket] = {}
+        self._last_access: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def check(self, client_id: str, tokens: int = 1) -> bool:
+        with self._lock:
+            if client_id not in self._buckets:
+                self._buckets[client_id] = TokenBucket(
+                    capacity=self.capacity,
+                    refill_rate=self.refill_rate
+                )
+            self._last_access[client_id] = time.monotonic()
+        return self._buckets[client_id].consume(tokens)
+
+    def cleanup_stale(self) -> int:
+        now = time.monotonic()
+        removed = 0
+        with self._lock:
+            stale = [
+                cid for cid, last in self._last_access.items()
+                if now - last > self.cleanup_interval
+            ]
+            for cid in stale:
+                del self._buckets[cid]
+                del self._last_access[cid]
+                removed += 1
+        return removed
+```
+
+The registry is essentially a wrapper that manages individual `TokenBucket` instances per client. The `cleanup_stale` method should definitely be called periodically to prevent memory leaks from clients that are no longer active. You would typically set up a background thread or use an async task to run cleanup every few minutes.
+
+### Integration with FastAPI
+
+To actually use this in a FastAPI application, you would basically create a dependency that checks the rate limiter before processing each request. The client identifier could be an API key, IP address, or any other unique identifier that makes sense for your application.
