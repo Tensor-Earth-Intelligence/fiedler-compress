@@ -574,7 +574,7 @@ def main() -> None:
         sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         prog="fiedler",
-        description="Fiedler Optimizer — spectral graph-theoretic prompt compression",
+        description="fiedler-compress — spectral graph-theoretic prompt compression",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
