@@ -17,7 +17,7 @@ spectral compression pipeline. Additional capabilities are available in a
 separate commercial tier.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from fiedler_optimizer.core import optimize, FiedlerResult
 from fiedler_optimizer.graph import build_similarity_graph, compute_fiedler_vector
