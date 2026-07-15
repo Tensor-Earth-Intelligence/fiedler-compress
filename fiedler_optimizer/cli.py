@@ -605,19 +605,31 @@ def main() -> None:
                        help="Show removed chunks and scores")
 
     # Caveman pipeline flags (mutually exclusive)
+    # SAFETY NOTE (all three): at full/ultra level, Caveman's removal word lists
+    # ("a"/"an"/"the", "is"/"are"/"was"/"were", "and"/"or") collide with Python (and
+    # similar-language) syntax. Code indented under a def/class body is protected
+    # incidentally by the 4+-space preserve rule, but bare top-level statements or
+    # single-line snippets are NOT -- always wrap code in a markdown fence
+    # (```lang ... ```) before compressing text that may contain unindented code.
     caveman_group = p_opt.add_mutually_exclusive_group()
     caveman_group.add_argument(
         "--pre-caveman", nargs="?", const="full", default=None,
         choices=["lite", "full", "ultra"], dest="pre_caveman",
-        help="Apply Caveman grammar-stripping BEFORE Fiedler (default level: full)")
+        help="Apply Caveman grammar-stripping BEFORE Fiedler (default level: full). "
+             "At full/ultra, fence any unindented code (```lang ... ```) first -- "
+             "see caveman_compress() docstring.")
     caveman_group.add_argument(
         "--post-caveman", nargs="?", const="full", default=None,
         choices=["lite", "full", "ultra"], dest="post_caveman",
-        help="Apply Caveman grammar-stripping AFTER Fiedler (default level: full)")
+        help="Apply Caveman grammar-stripping AFTER Fiedler (default level: full). "
+             "At full/ultra, fence any unindented code (```lang ... ```) first -- "
+             "see caveman_compress() docstring.")
     caveman_group.add_argument(
         "--caveman-only", nargs="?", const="full", default=None,
         choices=["lite", "full", "ultra"], dest="caveman_only",
-        help="Apply Caveman grammar-stripping WITHOUT Fiedler (default level: full)")
+        help="Apply Caveman grammar-stripping WITHOUT Fiedler (default level: full). "
+             "At full/ultra, fence any unindented code (```lang ... ```) first -- "
+             "see caveman_compress() docstring.")
 
     p_opt.set_defaults(func=cmd_optimize)
 

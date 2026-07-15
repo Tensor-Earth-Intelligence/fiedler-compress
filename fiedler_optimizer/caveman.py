@@ -18,6 +18,18 @@ Usage:
     result = caveman_compress(text, level="full")
     print(result.text)
     print(f"{result.compression_ratio:.1%} compression")
+
+CAUTION — unfenced source code at FULL/ULTRA level: the removal word lists overlap
+with common programming-language syntax -- articles "a"/"an"/"the" (word-boundary
+matched, so a single-letter variable named `a` is stripped like an article),
+copulas "is"/"are"/"was"/"were" (e.g. Python's `is`/`is not`), and conjunctions
+"and"/"or". Code indented under a def/class body (4+ leading spaces) is protected
+incidentally by the preserve-block rule for indented text, but bare top-level
+statements or single-line snippets are NOT protected and can be silently corrupted
+into invalid code (confirmed: `a = f(); r = a is not None and a.ready` becomes
+`= f(); r = not None and.ready` at full/ultra). Always wrap code that might be
+unindented in a markdown fence (```lang ... ```) before compressing -- the fenced-
+block preserve rule fully protects it, verified byte-for-byte unchanged.
 """
 
 from __future__ import annotations
@@ -427,6 +439,13 @@ def caveman_compress(
     Returns
     -------
     CavemanResult
+
+    Caution
+    -------
+    At ``"full"``/``"ultra"``, wrap any code that isn't already indented under a
+    def/class body in a markdown fence (```lang ... ```) before calling this --
+    see the module docstring for why (short variable names and ``is``/``is not``
+    can otherwise be stripped, corrupting the code).
     """
     level_enum = CavemanLevel(level.lower())
     original_tokens = _count_tokens(text)
