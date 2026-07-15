@@ -1,0 +1,292 @@
+{
+  "records": [
+    {
+      "model": "gemma4:31b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "baseline",
+      "survival": 0.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "fiedler_60",
+      "survival": 0.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "fiedler_70",
+      "survival": 0.0
+    },
+    {
+      "model": "gemma4:31b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "cpin70",
+      "survival": 0.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "khamenei",
+      "band": "shallow",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "hormuz",
+      "band": "shallow",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "fiedler_60",
+      "survival": 0.8
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "submarine",
+      "band": "mid",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "baseline",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "fiedler_60",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "fiedler_70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "carrier",
+      "band": "mid",
+      "cond": "cpin70",
+      "survival": 1.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "baseline",
+      "survival": 0.8
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "fiedler_60",
+      "survival": 0.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "fiedler_70",
+      "survival": 0.0
+    },
+    {
+      "model": "gpt-oss:120b",
+      "qid": "cost",
+      "band": "deep",
+      "cond": "cpin70",
+      "survival": 0.0
+    }
+  ],
+  "memleak": {
+    "gemma4:31b": [
+      "hormuz"
+    ],
+    "gpt-oss:120b": [
+      "hormuz"
+    ]
+  }
+}
