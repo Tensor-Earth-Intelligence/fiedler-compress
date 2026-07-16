@@ -62,17 +62,12 @@ Re-run that script to regenerate this file; if it changes, this summary was stal
 | qwen2.5:7b | fiedler_60 | 68% (n=40) | 64% (n=33) |
 | qwen2.5:7b | fiedler_70 | 68% (n=40) | 64% (n=33) |
 | qwen2.5:7b | cpin70 | 90% (n=40) | 88% (n=33) |
-| qwen3:30b-a3b *(see data-quality note below)* | baseline | 0% (n=40) | 0% (n=40) |
-| qwen3:30b-a3b *(see data-quality note below)* | fiedler_50 | 0% (n=40) | 0% (n=40) |
-| qwen3:30b-a3b *(see data-quality note below)* | fiedler_60 | 0% (n=40) | 0% (n=40) |
-| qwen3:30b-a3b *(see data-quality note below)* | fiedler_70 | 0% (n=40) | 0% (n=40) |
-| qwen3:30b-a3b *(see data-quality note below)* | cpin70 | 0% (n=40) | 0% (n=40) |
 
-**Data-quality note:** `qwen3:30b-a3b`'s stored survival is 0% in every condition,
-including the uncompressed baseline. A model failing the UNCOMPRESSED baseline is not
-a genuine compression-survival result -- this indicates a broken run (likely a
-reasoning-trace-output issue specific to this model), not evidence that fiedler-compress
-hurts this model. Excluded from headline claims pending a re-run.
+**Data-quality note:** the desktop set originally included `qwen3:30b-a3b`, but its pilot
+run recorded 0% in every condition *including the uncompressed baseline* -- a reasoning-trace
+output-parsing bug specific to this reasoning model, not evidence that fiedler-compress hurts
+it. That model has since been re-run correctly and is reported in the primary multi-passage
+sweep (`SWEEP.md`); the broken pilot row is omitted here.
 
 ## Long-context depth (~27K-token article, facts at shallow/mid/deep positions)
 

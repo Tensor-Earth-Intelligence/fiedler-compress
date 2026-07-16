@@ -121,6 +121,10 @@ def main():
 
     desktop_data = json.load(open(RESULTS / "public_survival_desktop_models.json", encoding="utf-8"))
     desktop_report = _rescore_survival(desktop_data, qids)
+    # qwen3:30b-a3b's pilot run was a broken 0%-everywhere (a reasoning-trace output-parsing
+    # bug, not a compression effect). It has since been re-run correctly in the primary
+    # multi-passage sweep (SWEEP.md), so omit the broken pilot row here rather than publish it.
+    desktop_report.pop("qwen3:30b-a3b", None)
 
     depth_data = json.load(open(RESULTS / "public_depth_results_runpod_20260703.json", encoding="utf-8"))
     depth_report = _rescore_depth(depth_data)
@@ -151,13 +155,13 @@ Re-run that script to regenerate this file; if it changes, this summary was stal
 
 ## Small/desktop-class models
 
-{_survival_table(desktop_report, exclude_models=["qwen3:30b-a3b"])}
+{_survival_table(desktop_report)}
 
-**Data-quality note:** `qwen3:30b-a3b`'s stored survival is 0% in every condition,
-including the uncompressed baseline. A model failing the UNCOMPRESSED baseline is not
-a genuine compression-survival result -- this indicates a broken run (likely a
-reasoning-trace-output issue specific to this model), not evidence that fiedler-compress
-hurts this model. Excluded from headline claims pending a re-run.
+**Data-quality note:** the desktop set originally included `qwen3:30b-a3b`, but its pilot
+run recorded 0% in every condition *including the uncompressed baseline* -- a reasoning-trace
+output-parsing bug specific to this reasoning model, not evidence that fiedler-compress hurts
+it. That model has since been re-run correctly and is reported in the primary multi-passage
+sweep (`SWEEP.md`); the broken pilot row is omitted here.
 
 ## Long-context depth (~27K-token article, facts at shallow/mid/deep positions)
 
