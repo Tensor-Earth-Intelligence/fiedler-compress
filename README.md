@@ -6,11 +6,21 @@ fiedler-compress uses the Fiedler vector — the second-smallest eigenvector of 
 
 ## Why Spectral Compression?
 
-Existing prompt compression tools (LLMLingua, TOON, selective summarization) treat text as a linear sequence and use statistical or neural methods to decide what to cut. They work, but they can't see **structural relationships** — they don't know that paragraph 3 is semantically load-bearing because it bridges two otherwise disconnected topics, or that paragraphs 7 and 8 say the same thing in different words.
-
 fiedler-compress builds a **similarity graph** over your text chunks, computes the spectral decomposition, and uses the Fiedler vector to find the natural semantic partitions. Chunks at the spectral periphery — weakly connected to the rest of the content — are the ones that can be safely removed. Chunks that bridge partitions are preserved, because removing them would fragment the prompt's information structure.
 
-This isn't summarization. It's **graph surgery**.
+This isn't summarization. It's **graph surgery** — and it's extractive, so surviving text is a verbatim subset of the input, in original order.
+
+### How it compares — the honest version
+
+The main alternative is a *learned* compressor such as **LLMLingua-2**, which trains a transformer to classify each token keep/drop. We benchmarked against it directly on identical data, and the trade is clear in both directions:
+
+- **LLMLingua-2 retains more answers at the same compression ratio** — by roughly 17–29 exact-match points at 1.5–2.5× on our multi-passage QA benchmark. A supervised model trained for this task should win on quality, and it does. We do not claim otherwise.
+- **fiedler-compress is ~1,205× cheaper to run** — 1.9 ms vs 2.34 s per document on the same CPU, with no model download, no tokenizer coupling, and no GPU.
+- **When you know what to protect, the chunk-based pin wins decisively** — given the same target span, pinning the containing chunk retained answers 25–45 points better than LLMLingua-2's token-level `force_tokens` list, because a span plus its surrounding context survives as one contiguous unit.
+
+So this is a **cost-and-dependency trade, not a quality claim**. Choose it when compression must be cheap, local, synchronous, and dependency-light; choose a learned compressor when maximum retention at a fixed token budget is what matters most.
+
+Full numbers, confidence intervals, raw per-item scores, and the script that regenerates every table: **[`benchmarks/`](benchmarks/)** (see [`benchmarks/SWEEP.md`](benchmarks/SWEEP.md)).
 
 ## Why Middleware
 
@@ -26,7 +36,7 @@ Agentic systems accumulate context fast — tool outputs, retrieved documents, p
 pip install fiedler-compress
 ```
 
-The open-core package runs entirely on NumPy and SciPy. A separate commercial tier offers additional capabilities (see below).
+The open-core package runs entirely on NumPy and SciPy — no neural models, no API calls, no GPU. Commercial licensing is available for use outside the FSL's permitted scope (see below).
 
 ## Quick Start
 
@@ -86,15 +96,19 @@ fiedler benchmark
 
 ## Performance
 
-The core pipeline is CPU-only and fast enough to run inline. Representative end-to-end latency (TF-IDF backend, single CPU core, no GPU):
+The core pipeline is CPU-only and fast enough to run inline. Measured end-to-end latency (TF-IDF backend, default settings, single CPU core, no GPU; mean of 5 runs on concatenated real prose):
 
 | Input size | End-to-end latency |
 |-----------:|-------------------:|
-| 1,000 tokens | ~12 ms |
-| 10,000 tokens | ~110 ms |
-| 50,000 tokens | ~550 ms |
+| ~1,800 tokens | ~2 ms |
+| ~10,000 tokens | ~13 ms |
+| ~50,000 tokens | ~71 ms |
 
-At typical production prompt sizes (1,000–10,000 tokens) the pipeline adds on the order of tens of milliseconds, negligible against typical LLM inference latency. Compression is a lossy operation — recall of fine-grained facts decreases as the target ratio increases — so keep must-keep content in protected instruction zones and tune the target ratio to your task. Detailed benchmarks will be published in a dedicated benchmarks document.
+At typical production prompt sizes the pipeline adds single-digit to low-tens of milliseconds — negligible against LLM inference latency.
+
+Compression is **lossy, and the loss is task-dependent**: recall of fine-grained facts decreases as the target ratio increases. On our multi-passage QA benchmark, exact-match answer recall falls from ~84–89% uncompressed to ~15–19% at 5× compression when the compressor is given no hint about what matters — and returns to ~81–85% when the relevant span is pinned. Keep must-keep content in protected instruction zones or pin it explicitly, and tune the target ratio to your task rather than assuming a default is safe.
+
+Full benchmark — 150 multi-passage SQuAD documents, a 1.5–5× compression sweep, five open-weight models (2B–30B), two deterministic scorers, bootstrap 95% confidence intervals, and a no-context control for training-memory leakage — is in **[`benchmarks/SWEEP.md`](benchmarks/SWEEP.md)**, with raw per-item scores and the regenerating script alongside it.
 
 ## Key Features
 
@@ -134,9 +148,9 @@ fiedler-compress/
 
 ## Commercial Tier
 
-This package is the open-core distribution: the TF-IDF + single-eigenvector (k=1) spectral compression pipeline. Additional capabilities — including **content attestation / certification** — are available as a commercial add-on.
+This package is the open-core distribution: the TF-IDF + single-eigenvector (k=1) spectral compression pipeline. That is the whole of what ships here — there is no verification loop and no certification module in this package, and nothing in it is gated or crippled.
 
-For commercial licensing or attestation inquiries:
+Commercial licensing (for use outside the FSL's permitted scope) is available, and further capabilities are in development. Enquiries:
 **Tensor Earth Intelligence (TEI), LLC** — tensor.earth.intelligence@gmail.com (Mark Chappell).
 
 ## Roadmap
