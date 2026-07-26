@@ -151,7 +151,7 @@ fiedler-compress/
 This package is the open-core distribution: the TF-IDF + single-eigenvector (k=1) spectral compression pipeline. That is the whole of what ships here — there is no verification loop and no certification module in this package, and nothing in it is gated or crippled.
 
 Commercial licensing (for use outside the FSL's permitted scope) is available, and further capabilities are in development. Enquiries:
-**Tensor Earth Intelligence (TEI), LLC** — tensor.earth.intelligence@gmail.com (Mark Chappell).
+**Tensor Earth Intelligence (TEI), LLC** — founder@tensorearthintelligence.com (Mark Chappell).
 
 ## Roadmap
 
