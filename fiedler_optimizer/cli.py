@@ -407,6 +407,7 @@ def cmd_benchmark_quality(args: argparse.Namespace) -> None:
             DATASETS,
             GeminiLLMClient,
             LLMClient,
+            OllamaLLMClient,
             format_summary_table,
             report_to_json,
         )
@@ -446,6 +447,17 @@ def cmd_benchmark_quality(args: argparse.Namespace) -> None:
             model=args.model,
             api_key_env=args.api_key_env,
         )
+    elif provider == "ollama":
+        llm_client = OllamaLLMClient(
+            model=args.model,
+            base_url=getattr(args, "ollama_url", "http://127.0.0.1:11434"),
+        )
+        # Fail before any compression work if the server or model is missing.
+        try:
+            llm_client.preflight()
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
     else:
         llm_client = LLMClient(
             model=args.model,
@@ -664,8 +676,15 @@ def main() -> None:
                       help="Process only 10 samples for quick validation")
     p_bq.add_argument("--limit", type=int, default=None,
                       help="Maximum samples to evaluate")
-    p_bq.add_argument("--provider", choices=["openai", "gemini"], default="openai",
-                      help="LLM provider: openai or gemini (default: openai)")
+    p_bq.add_argument("--provider", choices=["openai", "gemini", "ollama"],
+                      default="openai",
+                      help="LLM provider: openai, gemini, or ollama "
+                           "(default: openai). 'ollama' runs locally and needs "
+                           "no API key.")
+    p_bq.add_argument("--ollama-url", default="http://127.0.0.1:11434",
+                      dest="ollama_url", metavar="URL",
+                      help="Ollama server root (--provider ollama only). "
+                           "Default: http://127.0.0.1:11434")
     p_bq.add_argument("--few-shot", type=int, default=8, dest="few_shot",
                       help="Number of few-shot exemplars to prepend (default: 8, "
                            "0 for bare prompts). Currently used by gsm8k.")

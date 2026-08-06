@@ -439,12 +439,16 @@ def load_gsm8k(
         prepend to each test prompt.  Set to 0 for bare prompts.
     """
     ds_lib = _require_datasets()
-    ds = ds_lib.load_dataset("gsm8k", "main", split="test")
+    # Must be the fully-qualified "namespace/name" form. Current huggingface_hub
+    # rejects a bare "gsm8k" with HfUriError ("Repository id must be
+    # 'namespace/name'"), which broke this loader entirely.
+    _GSM8K_REPO = "openai/gsm8k"
+    ds = ds_lib.load_dataset(_GSM8K_REPO, "main", split="test")
 
     # Build the few-shot prefix once (same exemplars for every sample)
     prefix = ""
     if few_shot > 0:
-        train_ds = ds_lib.load_dataset("gsm8k", "main", split="train")
+        train_ds = ds_lib.load_dataset(_GSM8K_REPO, "main", split="train")
         prefix = _build_gsm8k_few_shot_prefix(train_ds, few_shot)
 
     samples = []
@@ -465,6 +469,15 @@ def load_gsm8k(
             "id": f"gsm8k_{i}",
             "prompt": prompt,
             "ground_truth": ground_truth,
+            # The span that must survive compression. With a few-shot prefix the
+            # prompt is 8 exemplars followed by the real question, and nothing
+            # stops the compressor deleting that question -- measured, it did so
+            # on 37% of items at the mildest ratio and 68% at the most aggressive.
+            # Accuracy then collapses because the model was never asked anything,
+            # which looks like a compression result and is not one.
+            # Only meaningful when a prefix exists: with few_shot=0 the prompt IS
+            # the question, and pinning it would block all compression.
+            "pin": item["question"] if prefix else None,
         })
     return samples
 
@@ -5509,6 +5522,147 @@ def _truncate_to_chunk_limit(text: str, max_chunks: int = 1900) -> str:
 # Benchmark runner
 # ---------------------------------------------------------------------------
 
+class OllamaLLMClient:
+    """Local Ollama client, so the quality benchmark runs without a cloud API key.
+
+    Duck-types the same ``complete(prompt) -> str`` interface as
+    :class:`LLMClient`, and uses only the standard library so the Ollama path
+    works even without the ``benchmark`` extra's ``httpx``.
+
+    Two behaviours are deliberate, both learned from the survival harness:
+
+    * **Reasoning models.** Some Ollama builds honour neither ``/no_think`` nor
+      ``think: False``; the answer then arrives in a separate reasoning field and
+      ``response`` comes back empty, which scores 0 everywhere including the
+      *uncompressed* baseline. A model that fails the uncompressed baseline is a
+      harness bug, not a compression finding. Reasoning models therefore run
+      think-ON with a large budget, and the answer is parsed out of ``response``
+      with ``<think>...</think>`` stripped.
+    * **Generous token budget.** GSM8K is scored by
+      :func:`exact_match_number`, which takes the *last* number in the output. A
+      chain of thought truncated mid-arithmetic therefore scores as a wrong
+      answer rather than as a truncation, so ``max_tokens`` defaults high enough
+      to let the reasoning finish.
+
+    Parameters
+    ----------
+    model : str
+        Ollama model tag, e.g. ``qwen2.5:7b``.
+    base_url : str
+        Ollama server root. No API key is used.
+    timeout : float
+        Per-request timeout in seconds.
+    max_tokens : int
+        ``num_predict`` for non-reasoning models.
+    max_tokens_reasoning : int
+        ``num_predict`` for reasoning models, which must also fit the trace.
+    temperature : float
+        Sampling temperature. Low by default for reproducibility.
+    num_ctx : int
+        Context window. Must fit the uncompressed prompt, since the benchmark
+        always evaluates that as its baseline.
+    """
+
+    #: Model-tag substrings that indicate a reasoning model.
+    REASONING_MARKERS = ("qwen3", "deepseek-r1", "qwq")
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://127.0.0.1:11434",
+        timeout: float = 600.0,
+        max_tokens: int = 512,
+        max_tokens_reasoning: int = 1500,
+        temperature: float = 0.1,
+        num_ctx: int = 8192,
+    ) -> None:
+        self._model = model
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout
+        self._max_tokens = max_tokens
+        self._max_tokens_reasoning = max_tokens_reasoning
+        self._temperature = temperature
+        self._num_ctx = num_ctx
+
+    # -- helpers ---------------------------------------------------------
+    @property
+    def is_reasoning(self) -> bool:
+        return any(m in self._model.lower() for m in self.REASONING_MARKERS)
+
+    @staticmethod
+    def _strip_think(text: str) -> str:
+        return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+
+    def _post(self, path: str, payload: dict) -> dict:
+        import urllib.request
+
+        req = urllib.request.Request(
+            self._base_url + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            return json.loads(resp.read().decode())
+
+    def available_models(self) -> list[str]:
+        """Model tags the server currently has, for preflight checks."""
+        import urllib.request
+
+        with urllib.request.urlopen(self._base_url + "/api/tags", timeout=15) as r:
+            tags = json.loads(r.read().decode())
+        return [m["name"] for m in tags.get("models", [])]
+
+    def preflight(self) -> None:
+        """Fail loudly and early if the server or the model is missing."""
+        try:
+            names = self.available_models()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Cannot reach Ollama at {self._base_url}: {exc}. "
+                f"Is `ollama serve` running?"
+            ) from exc
+        if not any(self._model == n or self._model in n for n in names):
+            raise RuntimeError(
+                f"Model {self._model!r} not found on {self._base_url}. "
+                f"Available: {names}. Pull it with: ollama pull {self._model}"
+            )
+
+    # -- interface -------------------------------------------------------
+    def complete(self, prompt: str) -> str:
+        """Send a prompt and return the model's answer text."""
+        num_predict = (
+            self._max_tokens_reasoning if self.is_reasoning else self._max_tokens
+        )
+        out = self._post(
+            "/api/generate",
+            {
+                "model": self._model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": self._temperature,
+                    "num_predict": num_predict,
+                    "num_ctx": self._num_ctx,
+                },
+            },
+        )
+        resp = out.get("response", "") or ""
+        # Strip traces unconditionally: exact_match_number reads the LAST number,
+        # so a leaked trace would supply the answer instead of the conclusion.
+        if "<think>" in resp:
+            resp = self._strip_think(resp)
+        if not resp.strip() and out.get("thinking"):
+            resp = self._strip_think(out.get("thinking", ""))
+        return resp.strip()
+
+
+#: How much of a loader-declared pin span to use as the pin pattern. A pattern is
+#: matched against chunk text, so a distinctive prefix is enough to protect the
+#: chunk holding the span, and it stays well inside MAX_PIN_PATTERN_LENGTH once
+#: re.escape has expanded any punctuation.
+_PIN_PREFIX_CHARS = 80
+
+
 class BenchmarkRunner:
     """Runs compression quality benchmarks against standard NLP datasets.
 
@@ -5599,6 +5753,17 @@ class BenchmarkRunner:
         ground_truth = sample["ground_truth"]
         sample_id = sample["id"]
 
+        # Per-sample pin: a loader may declare the span that must survive
+        # compression (see the "pin" field on gsm8k samples). Merged with any
+        # run-wide patterns. Only a prefix is pinned -- a pin pattern is matched
+        # against chunk text, so a short distinctive prefix protects the chunk
+        # containing the span without risking the length cap on long questions.
+        sample_pins = list(self._pin_patterns or [])
+        declared_pin = sample.get("pin")
+        if declared_pin:
+            sample_pins.append(re.escape(str(declared_pin)[:_PIN_PREFIX_CHARS]))
+        sample_pins = sample_pins or None
+
         # Pre-truncate to stay under the chunk limit
         prompt = _truncate_to_chunk_limit(prompt)
 
@@ -5665,7 +5830,7 @@ class BenchmarkRunner:
                 fiedler_result = optimize_fn(
                     compressible_text,
                     target_ratio=max(adjusted_target, 0.01),
-                    pin_patterns=self._pin_patterns,
+                    pin_patterns=sample_pins,
                 )
                 compressed_prompt = _reassemble_pinned(
                     fiedler_result.compressed, pinned_sections
@@ -5674,7 +5839,7 @@ class BenchmarkRunner:
                 fiedler_result = optimize_fn(
                     prompt,
                     target_ratio=max(target, 0.01),
-                    pin_patterns=self._pin_patterns,
+                    pin_patterns=sample_pins,
                 )
                 compressed_prompt = fiedler_result.compressed
 
