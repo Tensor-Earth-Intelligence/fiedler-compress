@@ -5538,11 +5538,16 @@ class OllamaLLMClient:
       harness bug, not a compression finding. Reasoning models therefore run
       think-ON with a large budget, and the answer is parsed out of ``response``
       with ``<think>...</think>`` stripped.
-    * **Generous token budget.** GSM8K is scored by
+    * **Generous token budget, and loud truncation.** GSM8K is scored by
       :func:`exact_match_number`, which takes the *last* number in the output. A
       chain of thought truncated mid-arithmetic therefore scores as a wrong
-      answer rather than as a truncation, so ``max_tokens`` defaults high enough
-      to let the reasoning finish.
+      answer rather than as a truncation. Worse, some models emit nothing
+      usable at all when they hit the cap: gemma4:e2b returns an **empty**
+      ``response`` with ``done_reason="length"`` after consuming the whole
+      budget, which scores 0 and is indistinguishable from a model that cannot
+      do arithmetic. ``max_tokens`` therefore defaults high, and every truncated
+      generation is counted on :attr:`truncations` and warned about once, so the
+      failure is visible instead of silent.
 
     Parameters
     ----------
@@ -5571,8 +5576,13 @@ class OllamaLLMClient:
         model: str,
         base_url: str = "http://127.0.0.1:11434",
         timeout: float = 600.0,
-        max_tokens: int = 512,
-        max_tokens_reasoning: int = 1500,
+        # Measured, not guessed: over 150 GSM8K items gemma4:e2b has a median
+        # generation of 524 tokens and a maximum of 2168, and 54.7% of its
+        # generations exceed 512. Terser models sit far below that, so the
+        # default must accommodate the verbose end or their scores silently
+        # become truncation artefacts.
+        max_tokens: int = 4096,
+        max_tokens_reasoning: int = 8192,
         temperature: float = 0.1,
         num_ctx: int = 8192,
     ) -> None:
@@ -5583,6 +5593,9 @@ class OllamaLLMClient:
         self._max_tokens_reasoning = max_tokens_reasoning
         self._temperature = temperature
         self._num_ctx = num_ctx
+        #: Generations that hit the token cap. Non-zero means some scores are
+        #: truncation artefacts, not model failures -- raise max_tokens and re-run.
+        self.truncations = 0
 
     # -- helpers ---------------------------------------------------------
     @property
@@ -5653,6 +5666,22 @@ class OllamaLLMClient:
             resp = self._strip_think(resp)
         if not resp.strip() and out.get("thinking"):
             resp = self._strip_think(out.get("thinking", ""))
+
+        # Truncation must never be silent. A generation that hits the cap scores
+        # as a wrong answer, and some models (gemma4:e2b) return an entirely
+        # empty response after consuming the whole budget -- which is
+        # indistinguishable from a model that simply got it wrong.
+        if out.get("done_reason") == "length":
+            self.truncations += 1
+            if self.truncations == 1:
+                warnings.warn(
+                    f"{self._model}: generation hit the {num_predict}-token cap "
+                    f"(done_reason='length'); the answer may be truncated or "
+                    f"empty and will score as wrong. Raise max_tokens"
+                    f"{'_reasoning' if self.is_reasoning else ''} and re-run. "
+                    f"Further truncations counted on .truncations, not warned.",
+                    stacklevel=2,
+                )
         return resp.strip()
 
 
