@@ -369,6 +369,12 @@ class SampleResult:
     """compressed_score / original_score (1.0 = no degradation)."""
     compress_time_ms: float
 
+    original_truncated: bool = False
+    """The uncompressed generation hit the model's token cap."""
+
+    compressed_truncated: bool = False
+    """The compressed generation hit the model's token cap."""
+
 
 @dataclass(frozen=True)
 class BenchmarkReport:
@@ -5596,6 +5602,13 @@ class OllamaLLMClient:
         #: Generations that hit the token cap. Non-zero means some scores are
         #: truncation artefacts, not model failures -- raise max_tokens and re-run.
         self.truncations = 0
+        #: Whether the MOST RECENT complete() hit the cap. BenchmarkRunner reads
+        #: this after each call so the affected sample can be excluded from
+        #: scoring rather than counted as a wrong answer. Raising the cap is not
+        #: a general fix: a model that loops degenerately on one item will
+        #: exhaust any budget, and that item carries no information about
+        #: compression quality either way.
+        self.last_truncated = False
 
     # -- helpers ---------------------------------------------------------
     @property
@@ -5671,7 +5684,8 @@ class OllamaLLMClient:
         # as a wrong answer, and some models (gemma4:e2b) return an entirely
         # empty response after consuming the whole budget -- which is
         # indistinguishable from a model that simply got it wrong.
-        if out.get("done_reason") == "length":
+        self.last_truncated = out.get("done_reason") == "length"
+        if self.last_truncated:
             self.truncations += 1
             if self.truncations == 1:
                 warnings.warn(
@@ -5805,6 +5819,8 @@ class BenchmarkRunner:
                 stacklevel=2,
             )
             original_response = ""
+        # Clients that cannot report truncation simply never flag it.
+        original_truncated = bool(getattr(self._llm, "last_truncated", False))
 
         original_score = self._scorer(original_response, ground_truth)
         input_tokens = _estimate_tokens(prompt)
@@ -5883,6 +5899,8 @@ class BenchmarkRunner:
                     stacklevel=2,
                 )
                 compressed_response = ""
+            compressed_truncated = bool(
+                getattr(self._llm, "last_truncated", False))
 
             compressed_score = self._scorer(compressed_response, ground_truth)
             delta = compressed_score - original_score
@@ -5931,6 +5949,8 @@ class BenchmarkRunner:
                 score_delta=round(delta, 4),
                 relative_quality=round(relative, 4),
                 compress_time_ms=round(compress_time, 2),
+                original_truncated=original_truncated,
+                compressed_truncated=compressed_truncated,
             ))
 
         self._samples_diagnosed += 1
@@ -5946,7 +5966,19 @@ class BenchmarkRunner:
 
         summary: dict[str, dict] = {}
         for ratio in sorted(by_ratio):
-            group = by_ratio[ratio]
+            full_group = by_ratio[ratio]
+
+            # Exclude pairs where either arm hit the token cap. A truncated
+            # generation scores as a wrong answer, so counting it would charge
+            # compression for a failure it did not cause -- and because the
+            # compressed prompt is shorter, truncation does not fall equally on
+            # the two arms, so it does not cancel out. Dropping the pair is the
+            # only treatment that leaves the comparison paired.
+            group = [r for r in full_group
+                     if not (r.original_truncated or r.compressed_truncated)]
+            n_excluded = len(full_group) - len(group)
+            if not group:  # degenerate: everything truncated
+                group, n_excluded = full_group, 0
             n = len(group)
 
             orig_scores = [r.original_score for r in group]
@@ -5968,6 +6000,7 @@ class BenchmarkRunner:
             ratio_label = f"{ratio:g}x"
             summary[ratio_label] = {
                 "n_samples": n,
+                "n_excluded_truncated": n_excluded,
                 "mean_original_score": round(_mean(orig_scores), 4),
                 "mean_compressed_score": round(_mean(comp_scores), 4),
                 "mean_relative_quality": round(_mean(qualities), 4),
