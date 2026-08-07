@@ -326,10 +326,20 @@ class TestBenchmarkRunner:
 
     def test_llm_called_for_both_original_and_compressed(self):
         client = MockLLMClient(default_response="5")
-        runner = BenchmarkRunner("gsm8k", ratios=[2], llm_client=client, limit=1)
+        runner = BenchmarkRunner("gsm8k", ratios=[2], llm_client=client, limit=1,
+                                 baseline_reps=1)
         runner.run()
         # 1 original call + 1 compressed call = 2
         assert client.call_count == 2
+
+    def test_baseline_reps_multiply_only_the_uncompressed_calls(self):
+        """The default 3 reps apply to the baseline, not to each ratio."""
+        client = MockLLMClient(default_response="5")
+        runner = BenchmarkRunner("gsm8k", ratios=[2, 4], llm_client=client,
+                                 limit=1)
+        runner.run()
+        # 3 baseline reps + 1 compressed call per ratio = 5
+        assert client.call_count == 5
 
 
 # ---------------------------------------------------------------------------

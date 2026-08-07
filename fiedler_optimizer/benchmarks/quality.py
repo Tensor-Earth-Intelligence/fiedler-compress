@@ -375,6 +375,9 @@ class SampleResult:
     compressed_truncated: bool = False
     """The compressed generation hit the model's token cap."""
 
+    original_reps: int = 1
+    """Non-truncated uncompressed generations averaged into original_score."""
+
 
 @dataclass(frozen=True)
 class BenchmarkReport:
@@ -5719,6 +5722,22 @@ class BenchmarkRunner:
         Any object with a ``complete(prompt: str) -> str`` method.
     limit : int or None
         Max samples to evaluate (None = all).
+    baseline_reps : int
+        How many times to generate the UNCOMPRESSED answer per sample, averaged
+        into ``original_score``. Default 3.
+
+        This is not belt-and-braces. Every compressed arm is compared against
+        the same uncompressed score, so with a single draw any luck in it biases
+        all ratios together and looks exactly like a clean dose-response.
+        Measured on GSM8K: qwen2.5:7b scored 0.913 and then 0.853 on an
+        identical re-run, a 6-point swing with no compression involved, which
+        was the same size as its apparent 2x effect. Averaging reps shrinks that
+        shared error as 1/sqrt(reps).
+
+        The compressed arms stay single-draw deliberately: their noise is
+        independent per ratio rather than common-mode, so it widens intervals
+        instead of manufacturing a trend. Cost scales as
+        (reps + len(ratios)) / (1 + len(ratios)).
     """
 
     def __init__(
@@ -5731,7 +5750,10 @@ class BenchmarkRunner:
         loader_kwargs: dict[str, Any] | None = None,
         pin_tool_results: bool = False,
         pin_patterns: list[str] | None = None,
+        baseline_reps: int = 3,
     ) -> None:
+        if baseline_reps < 1:
+            raise ValueError("baseline_reps must be >= 1")
         if dataset not in DATASETS:
             raise ValueError(
                 f"Unknown dataset: {dataset!r}. "
@@ -5746,6 +5768,7 @@ class BenchmarkRunner:
         self._loader_kwargs: dict[str, Any] = loader_kwargs or {}
         self._pin_tool_results = pin_tool_results
         self._pin_patterns = pin_patterns
+        self._baseline_reps = baseline_reps
 
         self._entry = DATASETS[dataset]
         self._scorer: Callable = self._entry["scorer"]
@@ -5822,7 +5845,34 @@ class BenchmarkRunner:
         # Clients that cannot report truncation simply never flag it.
         original_truncated = bool(getattr(self._llm, "last_truncated", False))
 
-        original_score = self._scorer(original_response, ground_truth)
+        # Additional uncompressed reps. This score is the shared reference for
+        # every compressed arm, so error in it is common-mode across ratios --
+        # averaging is what stops a lucky draw masquerading as a dose-response.
+        # Truncated reps are dropped rather than averaged in as wrong answers.
+        rep_scores: list[float] = []
+        if not original_truncated:
+            rep_scores.append(self._scorer(original_response, ground_truth))
+        for _ in range(max(0, self._baseline_reps - 1)):
+            try:
+                extra = self._llm.complete(prompt)
+            except Exception as exc:
+                warnings.warn(
+                    f"LLM call failed for {sample_id} (baseline rep): {exc}",
+                    stacklevel=2,
+                )
+                continue
+            if getattr(self._llm, "last_truncated", False):
+                original_truncated = True
+                continue
+            rep_scores.append(self._scorer(extra, ground_truth))
+
+        if rep_scores:
+            original_score = sum(rep_scores) / len(rep_scores)
+        else:
+            # Every rep truncated or errored. Score the last response for
+            # continuity; the pair is excluded from the summary anyway.
+            original_score = self._scorer(original_response, ground_truth)
+        n_baseline_reps = len(rep_scores)
         input_tokens = _estimate_tokens(prompt)
         is_diagnosed = self._samples_diagnosed < self._diagnose_limit
 
@@ -5951,6 +6001,7 @@ class BenchmarkRunner:
                 compress_time_ms=round(compress_time, 2),
                 original_truncated=original_truncated,
                 compressed_truncated=compressed_truncated,
+                original_reps=n_baseline_reps,
             ))
 
         self._samples_diagnosed += 1
