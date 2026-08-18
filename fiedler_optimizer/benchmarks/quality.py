@@ -369,6 +369,15 @@ class SampleResult:
     """compressed_score / original_score (1.0 = no degradation)."""
     compress_time_ms: float
 
+    original_truncated: bool = False
+    """The uncompressed generation hit the model's token cap."""
+
+    compressed_truncated: bool = False
+    """The compressed generation hit the model's token cap."""
+
+    original_reps: int = 1
+    """Non-truncated uncompressed generations averaged into original_score."""
+
 
 @dataclass(frozen=True)
 class BenchmarkReport:
@@ -439,12 +448,16 @@ def load_gsm8k(
         prepend to each test prompt.  Set to 0 for bare prompts.
     """
     ds_lib = _require_datasets()
-    ds = ds_lib.load_dataset("gsm8k", "main", split="test")
+    # Must be the fully-qualified "namespace/name" form. Current huggingface_hub
+    # rejects a bare "gsm8k" with HfUriError ("Repository id must be
+    # 'namespace/name'"), which broke this loader entirely.
+    _GSM8K_REPO = "openai/gsm8k"
+    ds = ds_lib.load_dataset(_GSM8K_REPO, "main", split="test")
 
     # Build the few-shot prefix once (same exemplars for every sample)
     prefix = ""
     if few_shot > 0:
-        train_ds = ds_lib.load_dataset("gsm8k", "main", split="train")
+        train_ds = ds_lib.load_dataset(_GSM8K_REPO, "main", split="train")
         prefix = _build_gsm8k_few_shot_prefix(train_ds, few_shot)
 
     samples = []
@@ -465,6 +478,15 @@ def load_gsm8k(
             "id": f"gsm8k_{i}",
             "prompt": prompt,
             "ground_truth": ground_truth,
+            # The span that must survive compression. With a few-shot prefix the
+            # prompt is 8 exemplars followed by the real question, and nothing
+            # stops the compressor deleting that question -- measured, it did so
+            # on 37% of items at the mildest ratio and 68% at the most aggressive.
+            # Accuracy then collapses because the model was never asked anything,
+            # which looks like a compression result and is not one.
+            # Only meaningful when a prefix exists: with few_shot=0 the prompt IS
+            # the question, and pinning it would block all compression.
+            "pin": item["question"] if prefix else None,
         })
     return samples
 
@@ -5509,6 +5531,184 @@ def _truncate_to_chunk_limit(text: str, max_chunks: int = 1900) -> str:
 # Benchmark runner
 # ---------------------------------------------------------------------------
 
+class OllamaLLMClient:
+    """Local Ollama client, so the quality benchmark runs without a cloud API key.
+
+    Duck-types the same ``complete(prompt) -> str`` interface as
+    :class:`LLMClient`, and uses only the standard library so the Ollama path
+    works even without the ``benchmark`` extra's ``httpx``.
+
+    Two behaviours are deliberate, both learned from the survival harness:
+
+    * **Reasoning models.** Some Ollama builds honour neither ``/no_think`` nor
+      ``think: False``; the answer then arrives in a separate reasoning field and
+      ``response`` comes back empty, which scores 0 everywhere including the
+      *uncompressed* baseline. A model that fails the uncompressed baseline is a
+      harness bug, not a compression finding. Reasoning models therefore run
+      think-ON with a large budget, and the answer is parsed out of ``response``
+      with ``<think>...</think>`` stripped.
+    * **Generous token budget, and loud truncation.** GSM8K is scored by
+      :func:`exact_match_number`, which takes the *last* number in the output. A
+      chain of thought truncated mid-arithmetic therefore scores as a wrong
+      answer rather than as a truncation. Worse, some models emit nothing
+      usable at all when they hit the cap: gemma4:e2b returns an **empty**
+      ``response`` with ``done_reason="length"`` after consuming the whole
+      budget, which scores 0 and is indistinguishable from a model that cannot
+      do arithmetic. ``max_tokens`` therefore defaults high, and every truncated
+      generation is counted on :attr:`truncations` and warned about once, so the
+      failure is visible instead of silent.
+
+    Parameters
+    ----------
+    model : str
+        Ollama model tag, e.g. ``qwen2.5:7b``.
+    base_url : str
+        Ollama server root. No API key is used.
+    timeout : float
+        Per-request timeout in seconds.
+    max_tokens : int
+        ``num_predict`` for non-reasoning models.
+    max_tokens_reasoning : int
+        ``num_predict`` for reasoning models, which must also fit the trace.
+    temperature : float
+        Sampling temperature. Low by default for reproducibility.
+    num_ctx : int
+        Context window. Must fit the uncompressed prompt, since the benchmark
+        always evaluates that as its baseline.
+    """
+
+    #: Model-tag substrings that indicate a reasoning model.
+    REASONING_MARKERS = ("qwen3", "deepseek-r1", "qwq")
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://127.0.0.1:11434",
+        timeout: float = 600.0,
+        # Measured, not guessed: over 150 GSM8K items gemma4:e2b has a median
+        # generation of 524 tokens and a maximum of 2168, and 54.7% of its
+        # generations exceed 512. Terser models sit far below that, so the
+        # default must accommodate the verbose end or their scores silently
+        # become truncation artefacts.
+        max_tokens: int = 4096,
+        max_tokens_reasoning: int = 8192,
+        temperature: float = 0.1,
+        num_ctx: int = 8192,
+    ) -> None:
+        self._model = model
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout
+        self._max_tokens = max_tokens
+        self._max_tokens_reasoning = max_tokens_reasoning
+        self._temperature = temperature
+        self._num_ctx = num_ctx
+        #: Generations that hit the token cap. Non-zero means some scores are
+        #: truncation artefacts, not model failures -- raise max_tokens and re-run.
+        self.truncations = 0
+        #: Whether the MOST RECENT complete() hit the cap. BenchmarkRunner reads
+        #: this after each call so the affected sample can be excluded from
+        #: scoring rather than counted as a wrong answer. Raising the cap is not
+        #: a general fix: a model that loops degenerately on one item will
+        #: exhaust any budget, and that item carries no information about
+        #: compression quality either way.
+        self.last_truncated = False
+
+    # -- helpers ---------------------------------------------------------
+    @property
+    def is_reasoning(self) -> bool:
+        return any(m in self._model.lower() for m in self.REASONING_MARKERS)
+
+    @staticmethod
+    def _strip_think(text: str) -> str:
+        return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+
+    def _post(self, path: str, payload: dict) -> dict:
+        import urllib.request
+
+        req = urllib.request.Request(
+            self._base_url + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            return json.loads(resp.read().decode())
+
+    def available_models(self) -> list[str]:
+        """Model tags the server currently has, for preflight checks."""
+        import urllib.request
+
+        with urllib.request.urlopen(self._base_url + "/api/tags", timeout=15) as r:
+            tags = json.loads(r.read().decode())
+        return [m["name"] for m in tags.get("models", [])]
+
+    def preflight(self) -> None:
+        """Fail loudly and early if the server or the model is missing."""
+        try:
+            names = self.available_models()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Cannot reach Ollama at {self._base_url}: {exc}. "
+                f"Is `ollama serve` running?"
+            ) from exc
+        if not any(self._model == n or self._model in n for n in names):
+            raise RuntimeError(
+                f"Model {self._model!r} not found on {self._base_url}. "
+                f"Available: {names}. Pull it with: ollama pull {self._model}"
+            )
+
+    # -- interface -------------------------------------------------------
+    def complete(self, prompt: str) -> str:
+        """Send a prompt and return the model's answer text."""
+        num_predict = (
+            self._max_tokens_reasoning if self.is_reasoning else self._max_tokens
+        )
+        out = self._post(
+            "/api/generate",
+            {
+                "model": self._model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": self._temperature,
+                    "num_predict": num_predict,
+                    "num_ctx": self._num_ctx,
+                },
+            },
+        )
+        resp = out.get("response", "") or ""
+        # Strip traces unconditionally: exact_match_number reads the LAST number,
+        # so a leaked trace would supply the answer instead of the conclusion.
+        if "<think>" in resp:
+            resp = self._strip_think(resp)
+        if not resp.strip() and out.get("thinking"):
+            resp = self._strip_think(out.get("thinking", ""))
+
+        # Truncation must never be silent. A generation that hits the cap scores
+        # as a wrong answer, and some models (gemma4:e2b) return an entirely
+        # empty response after consuming the whole budget -- which is
+        # indistinguishable from a model that simply got it wrong.
+        self.last_truncated = out.get("done_reason") == "length"
+        if self.last_truncated:
+            self.truncations += 1
+            if self.truncations == 1:
+                warnings.warn(
+                    f"{self._model}: generation hit the {num_predict}-token cap "
+                    f"(done_reason='length'); the answer may be truncated or "
+                    f"empty and will score as wrong. Raise max_tokens"
+                    f"{'_reasoning' if self.is_reasoning else ''} and re-run. "
+                    f"Further truncations counted on .truncations, not warned.",
+                    stacklevel=2,
+                )
+        return resp.strip()
+
+
+#: How much of a loader-declared pin span to use as the pin pattern. A pattern is
+#: matched against chunk text, so a distinctive prefix is enough to protect the
+#: chunk holding the span, and it stays well inside MAX_PIN_PATTERN_LENGTH once
+#: re.escape has expanded any punctuation.
+_PIN_PREFIX_CHARS = 80
+
+
 class BenchmarkRunner:
     """Runs compression quality benchmarks against standard NLP datasets.
 
@@ -5522,6 +5722,22 @@ class BenchmarkRunner:
         Any object with a ``complete(prompt: str) -> str`` method.
     limit : int or None
         Max samples to evaluate (None = all).
+    baseline_reps : int
+        How many times to generate the UNCOMPRESSED answer per sample, averaged
+        into ``original_score``. Default 3.
+
+        This is not belt-and-braces. Every compressed arm is compared against
+        the same uncompressed score, so with a single draw any luck in it biases
+        all ratios together and looks exactly like a clean dose-response.
+        Measured on GSM8K: qwen2.5:7b scored 0.913 and then 0.853 on an
+        identical re-run, a 6-point swing with no compression involved, which
+        was the same size as its apparent 2x effect. Averaging reps shrinks that
+        shared error as 1/sqrt(reps).
+
+        The compressed arms stay single-draw deliberately: their noise is
+        independent per ratio rather than common-mode, so it widens intervals
+        instead of manufacturing a trend. Cost scales as
+        (reps + len(ratios)) / (1 + len(ratios)).
     """
 
     def __init__(
@@ -5534,7 +5750,10 @@ class BenchmarkRunner:
         loader_kwargs: dict[str, Any] | None = None,
         pin_tool_results: bool = False,
         pin_patterns: list[str] | None = None,
+        baseline_reps: int = 3,
     ) -> None:
+        if baseline_reps < 1:
+            raise ValueError("baseline_reps must be >= 1")
         if dataset not in DATASETS:
             raise ValueError(
                 f"Unknown dataset: {dataset!r}. "
@@ -5549,6 +5768,7 @@ class BenchmarkRunner:
         self._loader_kwargs: dict[str, Any] = loader_kwargs or {}
         self._pin_tool_results = pin_tool_results
         self._pin_patterns = pin_patterns
+        self._baseline_reps = baseline_reps
 
         self._entry = DATASETS[dataset]
         self._scorer: Callable = self._entry["scorer"]
@@ -5599,6 +5819,17 @@ class BenchmarkRunner:
         ground_truth = sample["ground_truth"]
         sample_id = sample["id"]
 
+        # Per-sample pin: a loader may declare the span that must survive
+        # compression (see the "pin" field on gsm8k samples). Merged with any
+        # run-wide patterns. Only a prefix is pinned -- a pin pattern is matched
+        # against chunk text, so a short distinctive prefix protects the chunk
+        # containing the span without risking the length cap on long questions.
+        sample_pins = list(self._pin_patterns or [])
+        declared_pin = sample.get("pin")
+        if declared_pin:
+            sample_pins.append(re.escape(str(declared_pin)[:_PIN_PREFIX_CHARS]))
+        sample_pins = sample_pins or None
+
         # Pre-truncate to stay under the chunk limit
         prompt = _truncate_to_chunk_limit(prompt)
 
@@ -5611,8 +5842,37 @@ class BenchmarkRunner:
                 stacklevel=2,
             )
             original_response = ""
+        # Clients that cannot report truncation simply never flag it.
+        original_truncated = bool(getattr(self._llm, "last_truncated", False))
 
-        original_score = self._scorer(original_response, ground_truth)
+        # Additional uncompressed reps. This score is the shared reference for
+        # every compressed arm, so error in it is common-mode across ratios --
+        # averaging is what stops a lucky draw masquerading as a dose-response.
+        # Truncated reps are dropped rather than averaged in as wrong answers.
+        rep_scores: list[float] = []
+        if not original_truncated:
+            rep_scores.append(self._scorer(original_response, ground_truth))
+        for _ in range(max(0, self._baseline_reps - 1)):
+            try:
+                extra = self._llm.complete(prompt)
+            except Exception as exc:
+                warnings.warn(
+                    f"LLM call failed for {sample_id} (baseline rep): {exc}",
+                    stacklevel=2,
+                )
+                continue
+            if getattr(self._llm, "last_truncated", False):
+                original_truncated = True
+                continue
+            rep_scores.append(self._scorer(extra, ground_truth))
+
+        if rep_scores:
+            original_score = sum(rep_scores) / len(rep_scores)
+        else:
+            # Every rep truncated or errored. Score the last response for
+            # continuity; the pair is excluded from the summary anyway.
+            original_score = self._scorer(original_response, ground_truth)
+        n_baseline_reps = len(rep_scores)
         input_tokens = _estimate_tokens(prompt)
         is_diagnosed = self._samples_diagnosed < self._diagnose_limit
 
@@ -5665,7 +5925,7 @@ class BenchmarkRunner:
                 fiedler_result = optimize_fn(
                     compressible_text,
                     target_ratio=max(adjusted_target, 0.01),
-                    pin_patterns=self._pin_patterns,
+                    pin_patterns=sample_pins,
                 )
                 compressed_prompt = _reassemble_pinned(
                     fiedler_result.compressed, pinned_sections
@@ -5674,7 +5934,7 @@ class BenchmarkRunner:
                 fiedler_result = optimize_fn(
                     prompt,
                     target_ratio=max(target, 0.01),
-                    pin_patterns=self._pin_patterns,
+                    pin_patterns=sample_pins,
                 )
                 compressed_prompt = fiedler_result.compressed
 
@@ -5689,6 +5949,8 @@ class BenchmarkRunner:
                     stacklevel=2,
                 )
                 compressed_response = ""
+            compressed_truncated = bool(
+                getattr(self._llm, "last_truncated", False))
 
             compressed_score = self._scorer(compressed_response, ground_truth)
             delta = compressed_score - original_score
@@ -5737,6 +5999,9 @@ class BenchmarkRunner:
                 score_delta=round(delta, 4),
                 relative_quality=round(relative, 4),
                 compress_time_ms=round(compress_time, 2),
+                original_truncated=original_truncated,
+                compressed_truncated=compressed_truncated,
+                original_reps=n_baseline_reps,
             ))
 
         self._samples_diagnosed += 1
@@ -5752,7 +6017,19 @@ class BenchmarkRunner:
 
         summary: dict[str, dict] = {}
         for ratio in sorted(by_ratio):
-            group = by_ratio[ratio]
+            full_group = by_ratio[ratio]
+
+            # Exclude pairs where either arm hit the token cap. A truncated
+            # generation scores as a wrong answer, so counting it would charge
+            # compression for a failure it did not cause -- and because the
+            # compressed prompt is shorter, truncation does not fall equally on
+            # the two arms, so it does not cancel out. Dropping the pair is the
+            # only treatment that leaves the comparison paired.
+            group = [r for r in full_group
+                     if not (r.original_truncated or r.compressed_truncated)]
+            n_excluded = len(full_group) - len(group)
+            if not group:  # degenerate: everything truncated
+                group, n_excluded = full_group, 0
             n = len(group)
 
             orig_scores = [r.original_score for r in group]
@@ -5774,6 +6051,7 @@ class BenchmarkRunner:
             ratio_label = f"{ratio:g}x"
             summary[ratio_label] = {
                 "n_samples": n,
+                "n_excluded_truncated": n_excluded,
                 "mean_original_score": round(_mean(orig_scores), 4),
                 "mean_compressed_score": round(_mean(comp_scores), 4),
                 "mean_relative_quality": round(_mean(qualities), 4),
