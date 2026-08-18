@@ -36,7 +36,7 @@ Agentic systems accumulate context fast — tool outputs, retrieved documents, p
 pip install fiedler-compress
 ```
 
-The open-core package runs entirely on NumPy and SciPy — no neural models, no API calls, no GPU. Commercial licensing is available for use outside the FSL's permitted scope (see below).
+The package runs entirely on NumPy and SciPy — no neural models, no API calls, no GPU.
 
 ## Quick Start
 
@@ -142,7 +142,7 @@ fiedler-compress/
 ├── tests/
 │   └── test_core.py     # Test suite
 ├── pyproject.toml       # Package config
-├── LICENSE              # FSL-1.1-ALv2
+├── LICENSE              # Apache-2.0
 └── README.md
 ```
 
@@ -150,7 +150,7 @@ fiedler-compress/
 
 This package is the open-core distribution: the TF-IDF + single-eigenvector (k=1) spectral compression pipeline. That is the whole of what ships here — there is no verification loop and no certification module in this package, and nothing in it is gated or crippled.
 
-Commercial licensing (for use outside the FSL's permitted scope) is available, and further capabilities are in development. Enquiries:
+Further capabilities are in development. Enquiries:
 **Tensor Earth Intelligence (TEI), LLC** — founder@tensorearthintelligence.com (Mark Chappell).
 
 ## Roadmap
@@ -167,4 +167,4 @@ The Fiedler vector was originally conceived by Miroslav Fiedler (1973) for graph
 
 ## License
 
-Licensed under the Functional Source License, Version 1.1, Apache 2.0 Future License (FSL-1.1-ALv2). See [LICENSE](LICENSE) for full terms.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for full terms.
