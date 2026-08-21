@@ -106,7 +106,13 @@ class FiedlerResult:
     """Number of chunks removed."""
 
     removed_chunks: list[str] = field(default_factory=list)
-    """The text of chunks that were removed (for inspection/debugging)."""
+    """The text of chunks that were removed (for inspection/debugging).
+
+    Bare text, so duplicate chunks are indistinguishable: if two chunks share
+    the same text and one is removed, you cannot tell which from this list. Use
+    the chunk offsets from ``chunk_text`` if you need to identify the exact
+    source span.
+    """
 
     chunk_scores: list[float] = field(default_factory=list)
     """Connectivity score for each original chunk (for visualization)."""
