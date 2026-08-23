@@ -22,6 +22,13 @@ and the project uses [semantic versioning](https://semver.org/).
 - Version string was inconsistent (`__init__.py` reported `0.1.1` while the
   package built as `0.2.0`); both now report `0.3.0`.
 
+### Added
+- `benchmarks/reproduce_determinism.py` and `tests/test_determinism.py`: a
+  reproducibility artifact + regression guard for the determinism fix. Verified
+  that pre-fix and seeded code produce byte-identical compressed output on the
+  Paper-1 SQuAD-150 sweep (all 7 conditions, 0/1050 differences at 24 reps/case),
+  so published benchmark numbers reproduce exactly under the seeded release.
+
 ### Changed
 - Line endings normalized to LF via `.gitattributes` (`* text=auto eol=lf`).
 
