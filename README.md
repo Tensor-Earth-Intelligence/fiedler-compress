@@ -110,6 +110,8 @@ Compression is **lossy, and the loss is task-dependent**: recall of fine-grained
 
 Full benchmark — 150 multi-passage SQuAD documents, a 1.5–5× compression sweep, five open-weight models (2B–30B), two deterministic scorers, bootstrap 95% confidence intervals, and a no-context control for training-memory leakage — is in **[`benchmarks/SWEEP.md`](benchmarks/SWEEP.md)**, with raw per-item scores and the regenerating script alongside it.
 
+Compression itself is deterministic — identical input yields byte-identical output. This is locked by **[`tests/test_determinism.py`](tests/test_determinism.py)** (CI regression guard) and demonstrated end-to-end by **[`benchmarks/reproduce_determinism.py`](benchmarks/reproduce_determinism.py)**.
+
 ## Key Features
 
 - **Dependency-free core** — only NumPy and SciPy required. No neural models, no API calls, runs entirely local
