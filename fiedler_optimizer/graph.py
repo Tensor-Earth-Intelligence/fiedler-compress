@@ -216,12 +216,16 @@ def compute_fiedler_vector(
 
     # Compute the two smallest eigenvalues/vectors
     # (smallest is always 0 for connected graphs)
+    # Fixed start vector: ARPACK otherwise seeds v0 randomly, which makes the
+    # Fiedler vector (and every downstream score) nondeterministic run-to-run.
+    v0 = np.random.default_rng(0).standard_normal(n)
     try:
         eigenvalues, eigenvectors = eigsh(
             L_sparse,
             k=min(2, n - 1),
             which="SM",  # smallest magnitude
             tol=1e-8,
+            v0=v0,
         )
     except Exception:
         # Fallback for numerical issues: use dense solver
@@ -244,6 +248,12 @@ def compute_fiedler_vector(
     max_abs = np.max(np.abs(fiedler))
     if max_abs > 0:
         fiedler = fiedler / max_abs
+
+    # Eigenvectors are defined only up to sign; the sparse and dense paths (and
+    # different LAPACK builds) can return either orientation. Canonicalize so the
+    # Fiedler vector is stable: make the largest-magnitude component positive.
+    if fiedler[np.argmax(np.abs(fiedler))] < 0:
+        fiedler = -fiedler
 
     return fiedler, lambda_2
 
