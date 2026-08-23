@@ -1,0 +1,3 @@
+# Normalize line endings: store as LF in the repo and check out as LF on every OS.
+# `text=auto` lets git detect text vs binary, so binaries are left untouched.
+* text=auto eol=lf

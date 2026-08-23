@@ -25,7 +25,14 @@ class ChunkingStrategy(Enum):
 
 @dataclass(frozen=True)
 class Chunk:
-    """A text segment that becomes a node in the similarity graph."""
+    """A text segment that becomes a node in the similarity graph.
+
+    Invariant: ``normalized[start_char:end_char] == text`` for every chunk,
+    where ``normalized`` is ``_normalize_unicode(input)`` -- the string
+    ``chunk_text`` actually splits. This equals the caller's raw input except
+    where Unicode normalization changed length (e.g. an em dash becoming ``--``),
+    so use these offsets against the normalized text for exact provenance.
+    """
     text: str
     index: int
     start_char: int
@@ -49,7 +56,19 @@ _SENTENCE_BOUNDARY = re.compile(
     re.MULTILINE,
 )
 
-_WHITESPACE_NORMALIZE = re.compile(r'\s+')
+def _strip_span(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """Shrink a half-open span to drop leading/trailing whitespace.
+
+    Returns None if the span is empty after stripping. Stripping by moving the
+    bounds (instead of calling .strip() on a copy) keeps text[start:end] an
+    exact substring of the source, which is what the offset invariant needs.
+    """
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    return (start, end) if start < end else None
+
 
 def _normalize_unicode(text: str) -> str:
     """Normalize Unicode characters for consistent cross-platform behavior."""
@@ -72,42 +91,55 @@ def _normalize_unicode(text: str) -> str:
     return text
 
 
-def _split_sentences(text: str) -> list[str]:
-    """Split text on sentence boundaries, keeping the delimiter with the sentence."""
-    parts: list[str] = []
+def _split_sentences(text: str) -> list[tuple[int, int]]:
+    """Split on sentence boundaries, returning (start, end) spans into *text*."""
+    spans: list[tuple[int, int]] = []
     last = 0
     for m in _SENTENCE_BOUNDARY.finditer(text):
         end = m.end()
-        sentence = text[last:end].strip()
-        if sentence:
-            parts.append(sentence)
+        span = _strip_span(text, last, end)
+        if span:
+            spans.append(span)
         last = end
     # Trailing content that didn't end with punctuation
-    remainder = text[last:].strip()
-    if remainder:
-        parts.append(remainder)
-    return parts
+    span = _strip_span(text, last, len(text))
+    if span:
+        spans.append(span)
+    return spans
 
 
-def _split_paragraphs(text: str) -> list[str]:
-    """Split on double newlines (standard paragraph breaks)."""
-    raw = re.split(r'\n\s*\n', text)
-    return [p.strip() for p in raw if p.strip()]
+def _split_paragraphs(text: str) -> list[tuple[int, int]]:
+    """Split on double newlines, returning (start, end) spans into *text*."""
+    spans: list[tuple[int, int]] = []
+    last = 0
+    for m in re.finditer(r'\n\s*\n', text):
+        span = _strip_span(text, last, m.start())
+        if span:
+            spans.append(span)
+        last = m.end()
+    span = _strip_span(text, last, len(text))
+    if span:
+        spans.append(span)
+    return spans
 
 
-def _split_sliding_window(text: str, window_words: int = 50, stride_words: int = 25) -> list[str]:
-    """Overlapping sliding window over words."""
-    words = text.split()
+def _split_sliding_window(text: str, window_words: int = 50, stride_words: int = 25) -> list[tuple[int, int]]:
+    """Overlapping sliding window over words, returning (start, end) spans into *text*."""
+    # Word spans, so a window maps to the contiguous source slice covering it
+    # (inter-word whitespace, newlines included) rather than a rejoined copy.
+    words = [(m.start(), m.end()) for m in re.finditer(r'\S+', text)]
     if len(words) <= window_words:
-        return [text.strip()]
-    chunks = []
+        span = _strip_span(text, 0, len(text))
+        return [span] if span else []
+    spans: list[tuple[int, int]] = []
     for i in range(0, len(words) - window_words + 1, stride_words):
-        chunk = " ".join(words[i : i + window_words])
-        chunks.append(chunk)
+        win = words[i : i + window_words]
+        spans.append((win[0][0], win[-1][1]))
     # Capture any trailing words not covered by the last full window
     if i + window_words < len(words):
-        chunks.append(" ".join(words[i + stride_words :]))
-    return chunks
+        tail = words[i + stride_words :]
+        spans.append((tail[0][0], tail[-1][1]))
+    return spans
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +153,7 @@ def _choose_strategy(text: str) -> ChunkingStrategy:
 
     # If we have well-formed paragraphs of reasonable size, use them
     if len(paragraphs) >= 4:
-        avg_words = sum(len(p.split()) for p in paragraphs) / len(paragraphs)
+        avg_words = sum(len(text[a:b].split()) for a, b in paragraphs) / len(paragraphs)
         if 20 <= avg_words <= 200:
             return ChunkingStrategy.PARAGRAPH
 
@@ -171,49 +203,43 @@ def chunk_text(
         strategy = _choose_strategy(text)
 
     if strategy == ChunkingStrategy.SENTENCE:
-        raw_chunks = _split_sentences(text)
+        raw_spans = _split_sentences(text)
     elif strategy == ChunkingStrategy.PARAGRAPH:
-        raw_chunks = _split_paragraphs(text)
+        raw_spans = _split_paragraphs(text)
     elif strategy == ChunkingStrategy.SLIDING_WINDOW:
-        raw_chunks = _split_sliding_window(text, window_words, stride_words)
+        raw_spans = _split_sliding_window(text, window_words, stride_words)
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
-    # Merge tiny chunks into their successor
-    merged: list[str] = []
-    buffer = ""
-    for raw in raw_chunks:
-        combined = f"{buffer} {raw}".strip() if buffer else raw
-        if len(combined.split()) < min_chunk_words:
-            buffer = combined
+    # Merge tiny chunks into their successor. Spans are carried, not text, so a
+    # merge is the union (buffer_start, successor_end) -- always a contiguous
+    # slice of the source, which keeps text[start:end] == chunk.text exact.
+    merged: list[tuple[int, int]] = []
+    buffer: tuple[int, int] | None = None
+    for start, end in raw_spans:
+        if buffer:
+            start = buffer[0]
+        if len(text[start:end].split()) < min_chunk_words:
+            buffer = (start, end)
         else:
-            merged.append(combined)
-            buffer = ""
+            merged.append((start, end))
+            buffer = None
     if buffer:
         if merged:
-            merged[-1] = f"{merged[-1]} {buffer}"
+            merged[-1] = (merged[-1][0], buffer[1])
         else:
             merged.append(buffer)
 
-    # Build Chunk objects with character offsets
+    # Offsets come straight from the spans -- no search, no reconstruction.
     chunks: list[Chunk] = []
-    search_start = 0
-    for i, segment in enumerate(merged):
-        # Find the approximate start position in the original text
-        normalized_seg = _WHITESPACE_NORMALIZE.sub(" ", segment).strip()
-        # Use first 40 chars as anchor for position search
-        anchor = normalized_seg[:40]
-        pos = text.find(anchor, search_start)
-        if pos == -1:
-            pos = search_start  # fallback
-
+    for i, (start, end) in enumerate(merged):
+        segment = text[start:end]
         chunks.append(Chunk(
             text=segment,
             index=i,
-            start_char=pos,
-            end_char=pos + len(segment),
+            start_char=start,
+            end_char=end,
             word_count=len(segment.split()),
         ))
-        search_start = pos + 1
 
     return chunks

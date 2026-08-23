@@ -5504,15 +5504,20 @@ def _truncate_to_chunk_limit(text: str, max_chunks: int = 1900) -> str:
     The default of 1900 provides headroom below the hard ``MAX_CHUNKS=2000``
     limit in ``graph.py``.
     """
-    from fiedler_optimizer.chunker import ChunkingStrategy, chunk_text
+    from fiedler_optimizer.chunker import (
+        ChunkingStrategy,
+        _normalize_unicode,
+        chunk_text,
+    )
 
     chunks = chunk_text(text, strategy=ChunkingStrategy.ADAPTIVE)
     if len(chunks) <= max_chunks:
         return text
 
-    # Keep text up to the end of the last allowed chunk
+    # Chunk offsets index the normalized text, so slice that (not raw `text`) --
+    # otherwise a length-changing Unicode normalization mis-places the cut.
     keep_end = chunks[max_chunks - 1].end_char
-    truncated = text[:keep_end]
+    truncated = _normalize_unicode(text)[:keep_end]
 
     original_tokens = _estimate_tokens(text)
     truncated_tokens = _estimate_tokens(truncated)

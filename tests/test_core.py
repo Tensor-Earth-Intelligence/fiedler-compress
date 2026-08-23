@@ -73,6 +73,29 @@ class TestChunker:
         chunks = chunk_text("", strategy=ChunkingStrategy.SENTENCE)
         assert len(chunks) == 0
 
+    def test_offsets_are_faithful(self):
+        """DOC[start_char:end_char] must equal chunk.text for every strategy.
+
+        Covers blank lines, runs of spaces, and a trailing tiny chunk ("Done.")
+        that forces a merge -- the three things the old anchor-search got wrong.
+        """
+        from fiedler_optimizer.chunker import _normalize_unicode
+
+        doc = (
+            "First paragraph has several words here to stay safe.\n\n"
+            "Second    paragraph    uses    runs    of    spaces.\n\n"
+            "Third paragraph is also reasonably long and wordy enough.\n\n"
+            "Done."
+        )
+        normalized = _normalize_unicode(doc)  # offsets index the normalized text
+        for strategy in ChunkingStrategy:
+            chunks = chunk_text(doc, strategy=strategy)
+            assert chunks, f"{strategy} produced no chunks"
+            for c in chunks:
+                assert normalized[c.start_char:c.end_char] == c.text, (
+                    f"{strategy}: chunk {c.index} offsets do not match its text"
+                )
+
 
 # ---------------------------------------------------------------------------
 # Graph tests
