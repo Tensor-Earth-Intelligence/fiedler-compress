@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fiedler-compress"
-version = "0.2.0"
+version = "0.3.0"
 description = "Spectral graph-theoretic prompt compression using Fiedler vector decomposition"
 readme = "README.md"
 license = "Apache-2.0"
