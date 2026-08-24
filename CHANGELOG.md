@@ -4,7 +4,7 @@ All notable changes to `fiedler-compress` are documented here.
 The format loosely follows [Keep a Changelog](https://keepachangelog.com/),
 and the project uses [semantic versioning](https://semver.org/).
 
-## [0.3.0] — unreleased
+## [0.3.0] — 2026-08-24
 
 ### Fixed
 - **Faithful chunk offsets.** `chunk_text` now carries `(start_char, end_char)`
