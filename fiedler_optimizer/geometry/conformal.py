@@ -37,10 +37,16 @@ def compute_conformal_embedding(
         n_neighbors: Controls local vs global structure.
         min_dist: Controls cluster tightness.
         metric: Distance metric in original space.
-        random_state: For reproducibility.
+        random_state: Seed forwarded to UMAP.  NOTE: this does not guarantee a
+            reproducible embedding -- UMAP's parallel optimizer is not bit-stable
+            across separate fits even with a fixed seed, so two identical calls
+            can return substantially different coordinates.  Cluster structure is
+            preserved; absolute coordinates are not.
 
     Returns:
-        (n_chunks, n_components) conformal embedding array.
+        (n_chunks, n_components) conformal embedding array.  Dimensionality is
+        clamped to ``n_chunks - 2`` (and to 1 for inputs of 3 or fewer chunks)
+        because UMAP's spectral init needs more samples than components.
     """
     import umap
 
