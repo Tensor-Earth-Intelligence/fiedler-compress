@@ -21,6 +21,7 @@ class ChunkingStrategy(Enum):
     PARAGRAPH = auto()
     SLIDING_WINDOW = auto()
     ADAPTIVE = auto()  # Picks strategy based on text structure
+    CODE = auto()      # Line-level, for structured / source / config text
 
 
 @dataclass(frozen=True)
@@ -142,12 +143,50 @@ def _split_sliding_window(text: str, window_words: int = 50, stride_words: int =
     return spans
 
 
+_STRUCT_CHARS = "{}[]=;:"
+
+
+def _looks_like_code(text: str) -> bool:
+    """Heuristic: structured / source / config text (JSON, code) rather than prose.
+    Keys on structural-char density AND a low fraction of lines that end like a
+    prose sentence.  Rule/instruction prose (lines ending in '.') is NOT code, so
+    it still routes to the sentence splitter."""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 4:
+        return False
+    struct = sum(text.count(c) for c in _STRUCT_CHARS)
+    prose_end = sum(1 for ln in lines if ln.rstrip().endswith((".", "!", "?")))
+    # prose_frac is the reliable discriminator (code ~0, prose >= 0.5); keep the
+    # threshold conservative so document/RAG prompts are never misread as code.
+    return (struct / len(lines)) >= 1.0 and (prose_end / len(lines)) < 0.3
+
+
+def _split_lines(text: str) -> list[tuple[int, int]]:
+    """Line-level spans for code / structured text (each non-blank line a chunk).
+
+    Leading indentation is kept (it is real content for code); only the trailing
+    newline/whitespace is dropped, so text[start:end] stays an exact substring.
+    """
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        if line.strip():
+            spans.append((pos, pos + len(line.rstrip())))
+        pos += len(line)
+    return spans
+
+
 # ---------------------------------------------------------------------------
 # Adaptive strategy selector
 # ---------------------------------------------------------------------------
 
 def _choose_strategy(text: str) -> ChunkingStrategy:
     """Pick the best chunking strategy based on text structure."""
+    # Structured / code text has no prose structure the sentence/paragraph
+    # splitters understand; split it by lines so compression can engage at all.
+    if _looks_like_code(text):
+        return ChunkingStrategy.CODE
+
     paragraphs = _split_paragraphs(text)
     sentences = _split_sentences(text)
 
@@ -208,6 +247,8 @@ def chunk_text(
         raw_spans = _split_paragraphs(text)
     elif strategy == ChunkingStrategy.SLIDING_WINDOW:
         raw_spans = _split_sliding_window(text, window_words, stride_words)
+    elif strategy == ChunkingStrategy.CODE:
+        raw_spans = _split_lines(text)
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
@@ -243,3 +284,26 @@ def chunk_text(
         ))
 
     return chunks
+
+
+def merge_kept_spans(
+    text: str,
+    chunks: Sequence[Chunk],
+    kept_indices: Sequence[int],
+) -> str:
+    """Reassemble kept chunks from their original character spans.
+
+    Overlapping windows are merged so the ADAPTIVE/SLIDING_WINDOW chunker's
+    overlap is not emitted twice (duplication inflates the output and can turn
+    "compression" negative). Slicing the source text directly also keeps the
+    result an exact substring reassembly, which anchor-searching did not
+    guarantee for passages containing embedded newlines.
+    """
+    spans = sorted((chunks[i].start_char, chunks[i].end_char) for i in kept_indices)
+    merged: list[list[int]] = []
+    for s, e in spans:
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return "\n\n".join(text[s:e] for s, e in merged)
