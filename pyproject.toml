@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fiedler-compress"
-version = "0.3.0"
+version = "0.4.0"
 description = "Spectral graph-theoretic prompt compression using Fiedler vector decomposition"
 readme = "README.md"
 license = "Apache-2.0"
@@ -50,6 +50,25 @@ benchmark = [
 caveman = [
     "spacy>=3.5,<4",
     "tiktoken>=0.5,<1",
+]
+# Neural similarity backend (build_similarity_graph(use_neural=True)).
+embeddings = [
+    "sentence-transformers>=2.2,<6",
+]
+# Geometric analysis: Voronoi / Minkowski / conformal UMAP.
+geometry = [
+    "scikit-learn>=1.1,<2",
+    "umap-learn>=0.5,<1",
+]
+# LLM-backed distillation (optimize(distill_backend=...)).
+distill = [
+    "httpx>=0.24,<1",
+    "transformers>=4.30,<6",
+]
+# Alternative similarity backends: Wasserstein (POT), hyperbolic (gensim).
+backends = [
+    "pot>=0.9,<1",
+    "gensim>=4.3,<5",
 ]
 
 [project.scripts]

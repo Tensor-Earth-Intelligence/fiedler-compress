@@ -24,3 +24,5 @@ _private_paid/
 # Secrets / keys
 *.key
 *.pem
+# Topology cache (TopologyCache default cache_dir)
+.fiedler_cache/

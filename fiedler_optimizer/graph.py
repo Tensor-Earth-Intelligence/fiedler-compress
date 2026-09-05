@@ -18,7 +18,29 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh
 
 from fiedler_optimizer.chunker import Chunk
-from fiedler_optimizer._tier import commercial_tier_error
+
+
+# ---------------------------------------------------------------------------
+# Neural model cache — persists across calls within the same process
+# ---------------------------------------------------------------------------
+
+_NEURAL_MODEL_CACHE: dict[str, object] = {}
+
+# Allowlist of trusted sentence-transformer models pinned to specific
+# Hugging Face revision hashes.  This prevents both loading of arbitrary
+# (potentially malicious) models and supply-chain attacks via silent
+# model updates on the Hub.
+#
+# Each entry maps model_name -> (revision_sha1, expected_embedding_dim).
+# After loading, the embedding dimension is verified to detect model
+# tampering or cache corruption.
+_ALLOWED_MODELS: dict[str, tuple[str, int]] = {
+    "all-MiniLM-L6-v2": ("c9745ed1d9f207416be6d2e6f8de32d1f16199bf", 384),
+    "all-MiniLM-L12-v2": ("a50ef00143b4d5391434df20ae11632588ac25be", 384),
+    "all-mpnet-base-v2": ("e8c3b32edf5434bc2275fc9bab85f82640a19130", 768),
+    "paraphrase-MiniLM-L6-v2": ("c9a2bfebc254878aee8c3aca9e6844d5bbb102d1", 384),
+    "paraphrase-multilingual-MiniLM-L12-v2": ("e8f8c211226b894fcb81acc59f3b34ba3efd5f42", 384),
+}
 
 
 # Maximum number of chunks to process. Larger counts create O(n²) similarity
@@ -97,6 +119,64 @@ def _compute_tfidf_matrix(chunks: Sequence[Chunk]) -> np.ndarray:
     return tfidf
 
 
+def _compute_neural_embeddings(
+    chunks: Sequence[Chunk], model_name: str = "all-MiniLM-L6-v2"
+) -> np.ndarray:
+    """
+    Compute neural embeddings using sentence-transformers.
+
+    Returns shape (n_chunks, embedding_dim) L2-normalized matrix.
+    Requires the 'embeddings' extra: pip install fiedler-compress[embeddings]
+
+    Uses a module-level cache so the model is only loaded once per process.
+    Only models in _ALLOWED_MODELS can be loaded to prevent arbitrary code
+    execution via malicious Hugging Face models.
+
+    Post-load integrity check: verifies the embedding dimension matches
+    the expected value to detect model tampering or cache corruption.
+    """
+    if model_name not in _ALLOWED_MODELS:
+        raise ValueError(
+            f"Model '{model_name}' is not in the allowed models list. "
+            f"Allowed: {sorted(_ALLOWED_MODELS)}"
+        )
+
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        raise ImportError(
+            "sentence-transformers is required for neural embeddings. "
+            "Install with: pip install fiedler-compress[embeddings]"
+        )
+
+    revision, expected_dim = _ALLOWED_MODELS[model_name]
+
+    if model_name not in _NEURAL_MODEL_CACHE:
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+        model = SentenceTransformer(model_name, revision=revision, device=device)
+
+        # Post-load integrity check: verify embedding dimension matches
+        # the pinned expectation to catch cache corruption or tampering.
+        actual_dim = model.get_sentence_embedding_dimension()
+        if actual_dim != expected_dim:
+            raise RuntimeError(
+                f"Model integrity check failed for '{model_name}': "
+                f"expected embedding dim {expected_dim}, got {actual_dim}. "
+                f"The cached model may be corrupted or tampered with."
+            )
+
+        _NEURAL_MODEL_CACHE[model_name] = model
+
+    model = _NEURAL_MODEL_CACHE[model_name]
+    texts = [c.text for c in chunks]
+    embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+    return np.array(embeddings)
+
+
 # ---------------------------------------------------------------------------
 # Similarity graph
 # ---------------------------------------------------------------------------
@@ -107,6 +187,7 @@ def build_similarity_graph(
     similarity_threshold: float = 0.05,
     use_neural: bool = False,
     model_name: str = "all-MiniLM-L6-v2",
+    backend: str | None = None,
 ) -> np.ndarray:
     """
     Construct a weighted adjacency matrix from chunk similarity.
@@ -117,15 +198,19 @@ def build_similarity_graph(
         Text chunks to build the graph over.
     vectors : np.ndarray, optional
         Pre-computed feature vectors (n_chunks x d). If None, vectors
-        are computed automatically using TF-IDF.
+        are computed automatically using TF-IDF or neural embeddings.
     similarity_threshold : float
         Edges with weight below this are zeroed out to produce a
         sparse but connected graph.
     use_neural : bool
-        Reserved for a commercial-tier similarity backend; not available
-        in the open-core package.
+        If True, use sentence-transformers for similarity instead of TF-IDF.
+        Ignored if ``backend`` is set.
     model_name : str
-        Reserved for a commercial-tier similarity backend.
+        Which sentence-transformers model to use (only when use_neural=True).
+    backend : str, optional
+        Named similarity backend (e.g. 'tfidf', 'aitchison', 'fisher-rao',
+        'wasserstein', 'hyperbolic', 'neural'). If set, overrides
+        ``use_neural`` and ``vectors``.
 
     Returns
     -------
@@ -143,20 +228,28 @@ def build_similarity_graph(
             f"excessive memory usage (O(n²) similarity matrix)."
         )
 
-    if vectors is None:
+    # If a named backend is specified, use it directly to produce similarity
+    if backend is not None:
+        from fiedler_optimizer.backends.registry import get_backend
+        backend_fn = get_backend(backend)
+        similarity = backend_fn(chunks)
+    elif vectors is None:
         if use_neural:
-            # This similarity backend is a commercial-tier capability and is
-            # not bundled with the open-core package.
-            raise commercial_tier_error()
+            vectors = _compute_neural_embeddings(chunks, model_name)
         else:
             vectors = _compute_tfidf_matrix(chunks)
+        # Cosine similarity (vectors are already L2-normalized)
+        similarity = vectors @ vectors.T
+    else:
+        similarity = vectors @ vectors.T
 
-    # Cosine similarity (vectors are already L2-normalized)
-    similarity = vectors @ vectors.T
+    # Sanitize: alternative backends can emit NaN/Inf, which would silently
+    # poison the Laplacian. Replace them and clip to [0, 1].
+    similarity = np.nan_to_num(similarity, nan=0.0, posinf=1.0, neginf=0.0)
+    similarity = np.clip(similarity, 0.0, 1.0)
 
     # Zero out self-loops and sub-threshold edges
     np.fill_diagonal(similarity, 0.0)
-    similarity = np.maximum(similarity, 0.0)  # clip negatives
     similarity[similarity < similarity_threshold] = 0.0
 
     # Ensure graph connectivity: add small positional proximity edges

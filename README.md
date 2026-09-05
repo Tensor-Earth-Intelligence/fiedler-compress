@@ -148,20 +148,35 @@ fiedler-compress/
 └── README.md
 ```
 
-## Commercial Tier
+## Scope
 
-This package is the open-core distribution: the TF-IDF + single-eigenvector (k=1) spectral compression pipeline. That is the whole of what ships here — there is no verification loop and no certification module in this package, and nothing in it is gated or crippled.
+As of 0.4.0 there is no commercial tier and nothing is held back. Everything the
+library can do ships here under Apache-2.0: spectral compression, ligatures,
+topology caching, distillation, spectral obscuring, reasoning templates, signed
+certificates, alternative similarity backends, and the geometric analysis
+modules. Earlier versions raised `CommercialTierError` from these paths; that
+error and the tier behind it are gone.
 
-Further capabilities are in development. Enquiries:
-**Tensor Earth Intelligence (TEI), LLC** — founder@tensorearthintelligence.com (Mark Chappell).
+The heavier capabilities are optional installs rather than optional licences:
+
+```bash
+pip install fiedler-compress                 # core: NumPy + SciPy only
+pip install fiedler-compress[embeddings]     # neural similarity
+pip install fiedler-compress[geometry]       # Voronoi / Minkowski / conformal
+pip install fiedler-compress[distill]        # LLM-backed distillation
+pip install fiedler-compress[backends]       # Wasserstein / hyperbolic metrics
+```
+
+Enquiries: **Tensor Earth Intelligence (TEI), LLC**,
+founder@tensorearthintelligence.com (Mark Chappell).
 
 ## Roadmap
 
 - [x] Core spectral compression with TF-IDF similarity
 - [x] Zone-aware instruction protection
 - [x] CLI with JSON output
+- [x] Full capability released open source (0.4.0)
 - [ ] VS Code extension with semantic density visualization
-- [ ] Additional capabilities available in the commercial tier
 
 ## Background
 

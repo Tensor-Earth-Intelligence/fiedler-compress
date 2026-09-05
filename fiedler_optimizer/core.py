@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Callable, Sequence
 
 import numpy as np
 
-from fiedler_optimizer.chunker import Chunk, ChunkingStrategy, chunk_text
+from fiedler_optimizer.chunker import (
+    Chunk,
+    ChunkingStrategy,
+    chunk_text,
+    merge_kept_spans,
+)
 from fiedler_optimizer.graph import (
     build_similarity_graph,
     compute_fiedler_vector,
     compute_chunk_scores,
 )
 from fiedler_optimizer.zones import Zone, ZonedChunk, detect_zones
-from fiedler_optimizer._tier import commercial_tier_error
 
 
 # --- Pin-pattern safety limits (ReDoS / DoS mitigation; see SECURITY_AUDIT.md P4-1) ---
@@ -43,7 +47,7 @@ def validate_pin_patterns(pin_patterns: Sequence[str]) -> None:
 
     This is the single choke point through which every caller passes — the
     :func:`optimize` ``pin_patterns`` argument, the CLI ``--pin-regex`` flag,
-    and the paid API — so the same caps apply everywhere. It guards against
+    and the CLI ``--pin-regex`` flag — so the same caps apply everywhere. It guards against
     denial-of-service from oversized or too-numerous regex inputs and against
     catastrophic-backtracking (ReDoS) patterns. See SECURITY_AUDIT.md P4-1.
 
@@ -118,34 +122,34 @@ class FiedlerResult:
     """Connectivity score for each original chunk (for visualization)."""
 
     ligatures: list = field(default_factory=list)
-    """Commercial-tier annotations (empty in the open core)."""
+    """Post-compression ligature annotations (list of ChunkLigature dicts)."""
 
     reasoning_template: dict | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Reasoning template built for the compressed text (set by ``template=``)."""
 
     certificate: dict | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Signed attestation over the spectrum and output (set by ``certify=``)."""
 
     signing_key: str | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Hex HMAC key used for ``certificate``. Auto-generated when not supplied."""
 
     provenance: dict | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Attestation additionally committing to the source prompt (``provenance=``)."""
 
     provenance_key: str | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Hex HMAC key used for ``provenance``. Auto-generated when not supplied."""
 
     topology: dict | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Topology classification and cache status (set by ``topology_cache=``)."""
 
     distillation: dict | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Distillation report: backend, zones, improvement (``distill_backend=``)."""
 
     obscured: str | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Spectrally obscured rendering of the output (set by ``obscure=``)."""
 
     zone_map: dict | None = field(default=None)
-    """Commercial-tier output (None in the open core)."""
+    """Zone map needed to interpret ``obscured`` (set by ``obscure=``)."""
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +159,27 @@ class FiedlerResult:
 def _estimate_tokens(text: str) -> int:
     """Rough token count estimate (~4 chars per token for English)."""
     return max(1, len(text) // 4)
+
+
+COVERAGE_AUTO_DOMINANCE = 0.6
+"""Auto-mode turns the coverage floor on only when one cluster holds at least
+this fraction of all chunks (the signature of a redundant bulk with sparse
+outliers)."""
+
+
+def _coverage_clusters(adjacency) -> list[int]:
+    """Topical islands for the coverage floor: connected components of the
+    similarity graph thresholded at the mean of its positive edge weights.
+    Chunks on distinct topics (weakly connected) land in separate components, so
+    a per-cluster keep-floor guarantees each topic keeps at least one survivor."""
+    from scipy.sparse import csr_matrix as _csr
+    from scipy.sparse.csgraph import connected_components as _cc
+
+    A = np.asarray(adjacency, dtype=float)
+    pos = A[A > 0]
+    thr = float(pos.mean()) if pos.size else 0.0
+    _, labels = _cc(_csr((A > thr).astype(int)), directed=False)
+    return labels.tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +203,11 @@ def optimize(
     topology_cache: object | None = None,
     distill_backend: str | None = None,
     pin_patterns: list[str] | None = None,
+    content_prior: str | Callable[[str], "list[str] | None"] | None = None,
+    backend: str | None = None,
+    min_keep_per_cluster: int = 0,
+    cluster_labels: list[int] | None = None,
+    coverage_auto: bool = False,
 ) -> FiedlerResult:
     """
     Compress text using Fiedler spectral decomposition.
@@ -216,6 +246,31 @@ def optimize(
         compression.  The Fiedler vector is still computed over all
         chunks (including pinned ones) so the spectral topology stays
         accurate.  Default ``None`` means no pinning.
+    content_prior : str or callable, optional
+        Shortcut for pinning by content TYPE instead of hand-writing patterns.
+        Either a callable ``fn(text) -> list[str] | None`` (equivalent to
+        ``optimize(text, pin_patterns=fn(text))``), or one of the curated preset
+        names ``"identifier"``, ``"salience"``, ``"observation"``, which resolve
+        against :mod:`fiedler_optimizer.geometry.content_prior` and therefore
+        need the ``geometry`` extra.  Raises ``ValueError`` for an unknown
+        preset.  Composes with an explicit ``pin_patterns``: the two lists are
+        merged rather than one overriding the other.
+    backend : str, optional
+        Named similarity backend (e.g. ``'aitchison'``, ``'fisher-rao'``,
+        ``'wasserstein'``, ``'hyperbolic'``).  Overrides ``use_neural`` and
+        ``vectors``.  Raises ``ValueError`` for an unknown backend.
+    min_keep_per_cluster : int
+        Coverage floor: every topical cluster retains at least this many chunks, so
+        evidence sitting alone on a distinct topic is not removed just for
+        scoring low.  Default 0 disables the floor entirely.
+    cluster_labels : list[int], optional
+        Precomputed cluster label per chunk for the coverage floor.  When
+        ``None`` the clusters are derived from the similarity graph.
+    coverage_auto : bool
+        Apply a coverage floor of 1 automatically, but only when one cluster
+        dominates the input (see :data:`COVERAGE_AUTO_DOMINANCE`) — the pattern
+        of a redundant bulk with sparse outliers.  On inputs made of distinct
+        topics the floor stays off, so it never strangles compression.
 
     Returns
     -------
@@ -234,6 +289,13 @@ def optimize(
             chunks_removed=0,
         )
 
+    if backend is not None:
+        from fiedler_optimizer.backends.registry import BACKENDS
+        if backend not in BACKENDS:
+            raise ValueError(
+                f"Unknown backend '{backend}'. Available: {sorted(BACKENDS)}"
+            )
+
     # --- Step 1: Chunk ---
     chunks = chunk_text(text, strategy=strategy)
 
@@ -249,13 +311,12 @@ def optimize(
         )
 
     # --- Step 2: Build similarity graph ---
-    adjacency = build_similarity_graph(chunks, vectors=vectors, use_neural=use_neural)
-    # --- Step 2b: Optional commercial-tier graph enrichment ---
+    adjacency = build_similarity_graph(
+        chunks, vectors=vectors, use_neural=use_neural, backend=backend
+    )
+    # --- Step 2b: Optional graph enrichment ---
     if ligature_rules is not None:
-        try:
-            from fiedler_optimizer.ligatures import apply_ligatures, RULE_SETS
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.ligatures import apply_ligatures, RULE_SETS
         if isinstance(ligature_rules, str):
             if ligature_rules not in RULE_SETS:
                 raise ValueError(
@@ -270,17 +331,14 @@ def optimize(
     # --- Step 3: Fiedler vector ---
     fiedler, lambda_2 = compute_fiedler_vector(adjacency)
 
-    # --- Step 3b: Optional commercial-tier graph caching ---
+    # --- Step 3b: Optional graph caching ---
     topology_data: dict | None = None
     if topology_cache is not None:
-        try:
-            from fiedler_optimizer.topology import (
-                TopologyClassifier,
-                TopologyCache,
-                extract_features,
-            )
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.topology import (
+            TopologyClassifier,
+            TopologyCache,
+            extract_features,
+        )
         features = extract_features(adjacency, fiedler, lambda_2)
         cached = topology_cache.get(features)
         if cached is not None:
@@ -317,6 +375,30 @@ def optimize(
         weighted_scores = scores
 
     # --- Step 5b: Identify pinned chunks ---
+    # content_prior is resolved into pin_patterns first, so generated patterns go
+    # through the same validate_pin_patterns() choke point as user-supplied ones.
+    # The preset path imports geometry lazily, so the extra is only needed when a
+    # preset name is actually requested.
+    if content_prior is not None:
+        if isinstance(content_prior, str):
+            from fiedler_optimizer.geometry.content_prior import (
+                CONTENT_PRIOR_PIN_PATTERNS,
+            )
+            if content_prior not in CONTENT_PRIOR_PIN_PATTERNS:
+                raise ValueError(
+                    f"Unknown content_prior '{content_prior}'. "
+                    f"Available: {list(CONTENT_PRIOR_PIN_PATTERNS.keys())}"
+                )
+            prior_patterns = CONTENT_PRIOR_PIN_PATTERNS[content_prior](text)
+        else:
+            prior_patterns = content_prior(text)
+        if prior_patterns:
+            pin_patterns = (
+                [*pin_patterns, *prior_patterns]
+                if pin_patterns
+                else list(prior_patterns)
+            )
+
     pinned_indices: set[int] = set()
     if pin_patterns:
         # Guard against oversized / too-many / ReDoS-prone user input before
@@ -339,6 +421,35 @@ def optimize(
     n = len(chunks)
     target_removals = max(1, int(n * target_ratio))
 
+    # Coverage floor: never empty a topical cluster. Each cluster keeps at least
+    # `effective_min` survivors, so evidence sitting alone on a distinct topic is
+    # protected even when it scores low. Enabled explicitly by
+    # min_keep_per_cluster > 0, or automatically by coverage_auto when one cluster
+    # dominates (a redundant bulk with sparse outlier needles). On mostly-singleton
+    # inputs (distinct topics / RAG passages) auto keeps the floor off, where it
+    # would otherwise strangle compression.
+    cov_labels = None
+    cluster_kept = None
+    effective_min = min_keep_per_cluster
+    if min_keep_per_cluster > 0 or coverage_auto:
+        from collections import Counter as _Counter
+
+        cov_labels = (
+            cluster_labels if cluster_labels is not None
+            else _coverage_clusters(adjacency)
+        )
+        cluster_kept = dict(_Counter(cov_labels))
+        n_clusters = len(cluster_kept)
+        dominance = (max(cluster_kept.values()) / n) if n else 0.0
+        if coverage_auto and min_keep_per_cluster == 0:
+            effective_min = 1 if dominance >= COVERAGE_AUTO_DOMINANCE else 0
+        # Disable when the floor cannot permit meaningful removal (all singletons,
+        # or auto declined): fall back to ordinary removal.
+        if effective_min == 0 or n_clusters >= n:
+            cov_labels = None
+            cluster_kept = None
+            effective_min = 0
+
     # Build (index, weighted_score) pairs and sort by score ascending
     indexed_scores = sorted(enumerate(weighted_scores), key=lambda x: x[1])
 
@@ -356,18 +467,27 @@ def optimize(
         # Don't remove chunks that are highly protected instructions
         if protect_instructions and zoned[idx].zone == Zone.INSTRUCTION and zoned[idx].confidence > 0.7:
             continue
+        # Coverage floor: don't remove the last survivor(s) of a topical cluster
+        if cluster_kept is not None:
+            lbl = cov_labels[idx]
+            if cluster_kept[lbl] - 1 < effective_min:
+                continue
         # Don't remove if it would exceed target ratio by character count
         chunk_chars = chunks[idx].word_count
         if total_chars > 0 and (removed_chars + chunk_chars) / total_chars > target_ratio * 1.5:
             continue
         remove_indices.add(idx)
         removed_chars += chunk_chars
+        if cluster_kept is not None:
+            cluster_kept[cov_labels[idx]] -= 1
 
     # --- Step 7: Reconstruct compressed text ---
     kept_indices = sorted(i for i in range(n) if i not in remove_indices)
-    kept_chunks = [chunks[i] for i in kept_indices]
     removed_chunks_text = [chunks[i].text for i in sorted(remove_indices)]
-    compressed = "\n\n".join(c.text for c in kept_chunks)
+    # Reassemble from original character spans, merging overlapping windows.
+    # Joining chunk text directly would duplicate the ADAPTIVE chunker's
+    # overlap, inflating the output into negative "compression".
+    compressed = merge_kept_spans(text, chunks, kept_indices)
 
     original_tokens = _estimate_tokens(text)
     compressed_tokens = _estimate_tokens(compressed)
@@ -375,32 +495,30 @@ def optimize(
 
     char_ratio = 1.0 - (len(compressed) / max(len(text), 1))
 
-    # --- Step 7b: Optional commercial-tier post-processing ---
+    # --- Step 7b: Optional post-processing ---
     distillation_data: dict | None = None
     if distill_backend is not None:
         from dataclasses import asdict as _asdict_dist
-        try:
-            from fiedler_optimizer.distillation import Distiller, get_backend
-            from fiedler_optimizer.ligature import generate_ligatures as _gen_lig_early
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.distillation import Distiller, get_backend
+        from fiedler_optimizer.ligature import generate_ligatures as _gen_lig_early
 
         # Pre-compute annotations so post-processing can preserve anchors
         early_ligatures = _gen_lig_early(kept_indices, fiedler, lambda_2, adjacency)
         early_lig_dicts = [_asdict_dist(lig) for lig in early_ligatures]
 
-        # Accept either a backend name (str) or a pre-constructed instance
-        from fiedler_optimizer.distillation import DistillBackend as _DBProto
+        # Accept either a backend name (str) or a pre-constructed instance.
+        # Named distinctly from the `backend` parameter, which selects the
+        # similarity metric and must not be clobbered here.
         if isinstance(distill_backend, str):
-            backend = get_backend(distill_backend)
+            distiller_backend = get_backend(distill_backend)
         else:
-            backend = distill_backend  # already a backend instance
-        distiller = Distiller(backend)
+            distiller_backend = distill_backend  # already a backend instance
+        distiller = Distiller(distiller_backend)
         dist_result = distiller.distill(
             kept_indices, chunks, zoned, fiedler, scores,
             ligatures=early_lig_dicts,
         )
-        # Replace compressed text with the commercial-tier processed version
+        # Replace compressed text with the distilled version
         compressed = dist_result.distilled_text
         compressed_tokens = _estimate_tokens(compressed)
         tokens_saved = max(0, original_tokens - compressed_tokens)
@@ -419,70 +537,55 @@ def optimize(
             ],
         }
 
-    # --- Step 8: Optional commercial-tier output encoding ---
+    # --- Step 8: Optional spectral obscured output ---
     obscured_text: str | None = None
     zone_map_data: dict | None = None
     if obscure:
-        try:
-            from fiedler_optimizer.obscure import spectral_obscure
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.obscure import spectral_obscure
         obscured_text, zone_map_data = spectral_obscure(
             kept_indices, chunks, fiedler, lambda_2, adjacency, zoned, scores,
         )
 
-    # --- Step 9: Optional commercial-tier output ---
+    # --- Step 9: Optional reasoning template ---
     template_data: dict | None = None
     if template is not None:
         from dataclasses import asdict as _asdict_tmpl
-        try:
-            from fiedler_optimizer.templates import (
-                TemplateRegistry,
-                compute_spectral_profile,
-            )
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.templates import (
+            TemplateRegistry,
+            compute_spectral_profile,
+        )
         profile = compute_spectral_profile(
             kept_indices, fiedler, lambda_2, adjacency, zoned,
         )
         tmpl = TemplateRegistry.build(template, profile)
         template_data = _asdict_tmpl(tmpl)
 
-    # --- Step 10: Optional commercial-tier annotations ---
+    # --- Step 10: Optional post-compression ligatures ---
     ligature_annotations: list = []
     if emit_ligatures:
         from dataclasses import asdict as _asdict_lig
-        try:
-            from fiedler_optimizer.ligature import generate_ligatures
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.ligature import generate_ligatures
         raw_ligatures = generate_ligatures(kept_indices, fiedler, lambda_2, adjacency)
         ligature_annotations = [_asdict_lig(lig) for lig in raw_ligatures]
 
-    # --- Step 11: Optional commercial-tier attestation ---
+    # --- Step 11: Optional spectral certificate ---
     certificate_data: dict | None = None
     cert_key: str | None = None
     if certify:
         from dataclasses import asdict as _asdict_cert
-        try:
-            from fiedler_optimizer.certificate import generate_certificate
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.certificate import generate_certificate
         key_arg = certify if isinstance(certify, str) else None
         cert, cert_key = generate_certificate(
             fiedler, adjacency, zoned, compressed, signing_key=key_arg,
         )
         certificate_data = _asdict_cert(cert)
 
-    # --- Step 12: Optional commercial-tier attestation ---
+    # --- Step 12: Optional provenance certificate ---
     provenance_data: dict | None = None
     provenance_key: str | None = None
     if provenance:
         from dataclasses import asdict as _asdict_prov
-        try:
-            from fiedler_optimizer.certificate import generate_provenance_certificate
-        except ImportError as exc:
-            raise commercial_tier_error() from exc
+        from fiedler_optimizer.certificate import generate_provenance_certificate
         prov_key_arg = provenance if isinstance(provenance, str) else None
         prov_cert, provenance_key = generate_provenance_certificate(
             text, fiedler, adjacency, zoned, compressed, signing_key=prov_key_arg,

@@ -12,16 +12,17 @@ Basic usage:
     print(result.compressed)
     print(f"Saved {result.tokens_saved} tokens ({result.compression_ratio:.1%})")
 
-This is the open-core distribution: the TF-IDF + single-eigenvector (k=1)
-spectral compression pipeline. Additional capabilities are available in a
-separate commercial tier.
+As of 0.4.0 this is the complete capability, with no held-back commercial
+tier: spectral compression plus ligatures, topology caching, distillation,
+spectral obscuring, reasoning templates, and signed certificates. Optional
+extras pull in heavier scientific dependencies -- see ``pyproject.toml``.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from fiedler_optimizer.core import optimize, FiedlerResult
 from fiedler_optimizer.graph import build_similarity_graph, compute_fiedler_vector
-from fiedler_optimizer.chunker import chunk_text, ChunkingStrategy
+from fiedler_optimizer.chunker import chunk_text, ChunkingStrategy, merge_kept_spans
 from fiedler_optimizer.zones import detect_zones, Zone
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "compute_fiedler_vector",
     "chunk_text",
     "ChunkingStrategy",
+    "merge_kept_spans",
     "detect_zones",
     "Zone",
 ]

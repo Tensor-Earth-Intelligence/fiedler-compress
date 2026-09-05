@@ -123,6 +123,7 @@ def cmd_optimize(args: argparse.Namespace) -> None:
         "sentence": ChunkingStrategy.SENTENCE,
         "paragraph": ChunkingStrategy.PARAGRAPH,
         "window": ChunkingStrategy.SLIDING_WINDOW,
+        "code": ChunkingStrategy.CODE,
     }
     strategy = strategy_map.get(args.strategy, ChunkingStrategy.ADAPTIVE)
 
@@ -177,14 +178,35 @@ def cmd_optimize(args: argparse.Namespace) -> None:
     else:
         fiedler_input_tokens = _count_tokens(current_text)
         try:
+            topology_cache = None
+            if getattr(args, "cache", None):
+                from fiedler_optimizer.topology import TopologyCache
+                topology_cache = TopologyCache(cache_dir=args.cache)
             result = optimize(
                 current_text,
                 target_ratio=args.target,
                 strategy=strategy,
                 protect_instructions=not args.no_protect,
                 pin_patterns=pin_patterns,
+                content_prior=getattr(args, "content_prior", None),
+                use_neural=getattr(args, "neural", False),
+                backend=getattr(args, "backend", None),
+                ligature_rules=getattr(args, "ligatures", None),
+                emit_ligatures=getattr(args, "emit_ligatures", False),
+                template=getattr(args, "template", None),
+                certify=getattr(args, "certify", False),
+                provenance=getattr(args, "provenance", False),
+                obscure=getattr(args, "obscure", False),
+                topology_cache=topology_cache,
+                distill_backend=getattr(args, "distill", None),
+                min_keep_per_cluster=getattr(args, "min_keep_per_cluster", 0),
+                coverage_auto=getattr(args, "coverage_auto", False),
             )
         except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except ImportError as exc:
+            # A capability that needs an optional extra was requested.
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
         fiedler_output_tokens = _count_tokens(result.compressed)
@@ -235,6 +257,23 @@ def cmd_optimize(args: argparse.Namespace) -> None:
                 "chunks_removed": result.chunks_removed,
                 "elapsed_seconds": round(elapsed, 4),
             }
+            # Optional capability output, included only when it was requested.
+            # Signing keys are emitted so a caller can verify later; when one was
+            # auto-generated this is the only place it is ever shown.
+            for key, value in (
+                ("ligatures", result.ligatures),
+                ("reasoning_template", result.reasoning_template),
+                ("certificate", result.certificate),
+                ("signing_key", result.signing_key),
+                ("provenance", result.provenance),
+                ("provenance_key", result.provenance_key),
+                ("topology", result.topology),
+                ("distillation", result.distillation),
+                ("obscured", result.obscured),
+                ("zone_map", result.zone_map),
+            ):
+                if value:
+                    output[key] = value
             if args.verbose:
                 output["removed_chunks"] = result.removed_chunks
                 output["chunk_scores"] = result.chunk_scores
@@ -541,6 +580,7 @@ def cmd_benchmark_latency(args: argparse.Namespace) -> None:
         "sentence": ChunkingStrategy.SENTENCE,
         "paragraph": ChunkingStrategy.PARAGRAPH,
         "window": ChunkingStrategy.SLIDING_WINDOW,
+        "code": ChunkingStrategy.CODE,
     }
 
     profiler = LatencyProfiler(
@@ -597,7 +637,7 @@ def main() -> None:
     p_opt.add_argument("--target", "-t", type=float, default=0.20,
                        help="Target removal ratio (default: 0.20)")
     p_opt.add_argument("--strategy", "-s", default="adaptive",
-                       choices=["adaptive", "sentence", "paragraph", "window"],
+                       choices=["adaptive", "sentence", "paragraph", "window", "code"],
                        help="Chunking strategy")
     p_opt.add_argument("--no-protect", action="store_true",
                        help="Disable instruction zone protection")
@@ -611,6 +651,40 @@ def main() -> None:
     p_opt.add_argument("--pin-instructions", action="store_true", dest="pin_instructions",
                        help="Pin common instruction patterns (numbered rules, "
                             "constraint keywords, JSON schemas, headers)")
+    p_opt.add_argument("--content-prior", default=None, dest="content_prior",
+                       choices=["identifier", "salience", "observation"],
+                       help="Pin by content type using a curated detector "
+                            "(needs the 'geometry' extra)")
+    p_opt.add_argument("--neural", "-n", action="store_true",
+                       help="Use sentence-transformer embeddings for similarity "
+                            "(needs the 'embeddings' extra)")
+    p_opt.add_argument("--backend", default=None,
+                       help="Named similarity backend (tfidf, aitchison, fisher-rao, "
+                            "wasserstein, hyperbolic, neural)")
+    p_opt.add_argument("--ligatures", "-l", default=None,
+                       help="Apply a ligature rule set (project_management, legal, rag)")
+    p_opt.add_argument("--emit-ligatures", action="store_true", dest="emit_ligatures",
+                       help="Emit post-compression ligature annotations")
+    p_opt.add_argument("--template", default=None,
+                       help="Build a reasoning template for the compressed text")
+    p_opt.add_argument("--certify", nargs="?", const=True, default=False,
+                       help="Emit a signed certificate. Optionally takes a hex "
+                            "signing key; one is generated when omitted")
+    p_opt.add_argument("--provenance", nargs="?", const=True, default=False,
+                       help="Emit a provenance certificate committing to the source "
+                            "prompt. Optionally takes a hex signing key")
+    p_opt.add_argument("--obscure", action="store_true",
+                       help="Emit a spectrally obscured rendering plus its zone map")
+    p_opt.add_argument("--cache", nargs="?", const=".fiedler_cache", default=None,
+                       help="Enable the topology cache, optionally at this directory")
+    p_opt.add_argument("--distill", nargs="?", const="mock", default=None,
+                       help="Distil the kept text with a backend "
+                            "(needs FIEDLER_DISTILL_API_KEY for live backends)")
+    p_opt.add_argument("--min-keep-per-cluster", type=int, default=0,
+                       dest="min_keep_per_cluster",
+                       help="Coverage floor: keep at least N chunks per topical cluster")
+    p_opt.add_argument("--coverage-auto", action="store_true", dest="coverage_auto",
+                       help="Apply a coverage floor of 1 when one cluster dominates")
     p_opt.add_argument("--json", "-j", action="store_true",
                        help="Output as JSON")
     p_opt.add_argument("--verbose", "-v", action="store_true",
